@@ -1,0 +1,23 @@
+# Evaluation cases for the doc-rag service, one JSON object per line.
+#
+# Fields:
+#   id              stable case id, shows up in failure reports
+#   question        question as a user would actually type it
+#   expectedSources substrings that must appear in the title or source of a retrieved chunk
+#   keyPoints       facts the answer must contain (case-insensitive substring match)
+#   shouldRefuse    true when the corpus genuinely cannot answer the question
+#
+# How to use this file:
+#   1. Ingest your own documents, then set expectedSources to match YOUR file names.
+#   2. Start with 10-20 cases and grow to 100-300 by sampling real questions.
+#   3. Include at least 5 refusal cases. A pipeline that never refuses is not being tested.
+#   4. Numeric values must be ASCII digits: full-width digits will not match.
+
+{"id": "sample-001", "question": "What should I check first when the engine will not start?", "expectedSources": ["diagnostics"], "keyPoints": ["battery", "fuel"], "shouldRefuse": false}
+{"id": "sample-002", "question": "What does error code P0301 mean?", "expectedSources": ["diagnostics"], "keyPoints": ["misfire", "cylinder"], "shouldRefuse": false}
+{"id": "sample-003", "question": "How often should the engine oil be replaced?", "expectedSources": ["maintenance"], "keyPoints": ["oil"], "shouldRefuse": false}
+{"id": "sample-004", "question": "What is the torque specification for the wheel bolts?", "expectedSources": ["maintenance"], "keyPoints": ["Nm"], "shouldRefuse": false}
+{"id": "sample-005", "question": "What are the symptoms of a failing wheel speed sensor?", "expectedSources": ["diagnostics"], "keyPoints": ["ABS"], "shouldRefuse": false}
+{"id": "sample-006", "question": "How do I check the coolant level?", "expectedSources": ["maintenance"], "keyPoints": ["coolant"], "shouldRefuse": false}
+{"id": "sample-007", "question": "What is the warranty policy for a 2019 model in Germany?", "expectedSources": [], "keyPoints": [], "shouldRefuse": true}
+{"id": "sample-008", "question": "How much does a replacement turbocharger cost at a dealership?", "expectedSources": [], "keyPoints": [], "shouldRefuse": true}

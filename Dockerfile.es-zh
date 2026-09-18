@@ -1,0 +1,4 @@
+FROM docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+# Install the IK Chinese analyzer plugin so that Chinese text is tokenized properly.
+RUN bin/elasticsearch-plugin install --batch \
+    https://get.infini.cloud/elasticsearch/analysis-ik/8.15.3
