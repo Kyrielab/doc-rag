@@ -1,0 +1,25 @@
+# Build output
+target/
+
+# Secrets - never commit keys
+.env
+application-local.yml
+
+# Third-party corpus (JavaGuide) - local study use only, do not redistribute
+corpus/*.md
+!corpus/README.md
+
+# Logs
+*.log
+
+# Personal planning & interview-prep docs (kept local, not part of the public repo)
+PLAN.md
+study/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
