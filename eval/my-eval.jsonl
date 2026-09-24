@@ -1,0 +1,66 @@
+# doc-rag 评测用例集 v1.2（48 条 = 43 可答 + 5 拒答）
+# 语料：JavaGuide 7 份文档（Redis×2 / MySQL / Java并发×3 / 计算机网络），568 chunks
+#
+# 字段说明：
+#   expectedSources  文档级金标：top-K 中应出现该标题/来源的 chunk（子串匹配）
+#   expectedContent  chunk 级金标：正确 chunk 内容中的独享短语（已用 verify-terms.ps1
+#                    验证在语料中的唯一性）。文档级指标在 7 篇文档的小语料上会饱和
+#                    （v1.1 实测三配置全部 1.0，零区分度），chunk 级才是有效指标。
+#   keyPoints        答案中必须出现的事实点（大小写不敏感子串匹配）
+#   shouldRefuse     语料确实无法回答时为 true（拒答主题已验证语料零命中）
+#
+# 版本历史：
+#   v1   35 条，全部术语题（题面与文档用词重合）
+#   v1.1 +13 条口语化改写题（题面避开文档原词）；发现文档级 recall 饱和问题
+#   v1.2 全部可答题补充 expectedContent 金标短语
+#   v1.3 para-04 移除金标"可见性"：最小正确答案（"volatile"）不含它也被判对才合理；
+#        keyPoints 只保留"正确答案必然包含"的事实点（同步修复 isRefusal 哨兵后置误判）
+{"id":"redis-01","question":"Redis 的内存淘汰策略有哪些？如何配置？","expectedSources":["Redis核心问题"],"expectedContent":["内存淘汰"],"keyPoints":["LRU","maxmemory"],"shouldRefuse":false}
+{"id":"redis-02","question":"Redis 是单线程还是多线程？为什么 Redis 这么快？","expectedSources":["Redis核心问题"],"expectedContent":["多路复用"],"keyPoints":["多路复用","内存"],"shouldRefuse":false}
+{"id":"redis-03","question":"RDB 和 AOF 两种持久化方式有什么区别？该如何选择？","expectedSources":["Redis"],"expectedContent":["everysec"],"keyPoints":["快照","everysec"],"shouldRefuse":false}
+{"id":"redis-04","question":"AOF 重写的工作原理是什么？","expectedSources":["Redis持久化"],"expectedContent":["AOF 重写"],"keyPoints":["fork"],"shouldRefuse":false}
+{"id":"redis-05","question":"Redis 4.0 之后持久化机制有什么改进？","expectedSources":["Redis"],"expectedContent":["混合持久化"],"keyPoints":["混合","RDB"],"shouldRefuse":false}
+{"id":"redis-06","question":"Redis 有哪些常用的数据类型？分别适合什么场景？","expectedSources":["Redis核心问题"],"expectedContent":["ZSet"],"keyPoints":["String","Hash"],"shouldRefuse":false}
+{"id":"mysql-01","question":"为什么 InnoDB 选择 B+ 树作为索引结构，而不是 B 树或红黑树？","expectedSources":["MySQL核心问题"],"expectedContent":["非叶子"],"keyPoints":["非叶子","叶子"],"shouldRefuse":false}
+{"id":"mysql-02","question":"哪些情况会导致 MySQL 索引失效？","expectedSources":["MySQL核心问题"],"expectedContent":["索引失效"],"keyPoints":["最左","函数"],"shouldRefuse":false}
+{"id":"mysql-03","question":"MySQL 的事务隔离级别有哪些？分别解决什么问题？","expectedSources":["MySQL核心问题"],"expectedContent":["隔离级别"],"keyPoints":["可重复读","幻读"],"shouldRefuse":false}
+{"id":"mysql-04","question":"InnoDB 是如何解决读写并发问题的？","expectedSources":["MySQL核心问题"],"expectedContent":["MVCC"],"keyPoints":["MVCC","undo"],"shouldRefuse":false}
+{"id":"mysql-05","question":"MySQL 的 redo log 主要解决什么问题？","expectedSources":["MySQL核心问题"],"expectedContent":["redo"],"keyPoints":["崩溃"],"shouldRefuse":false}
+{"id":"mysql-06","question":"如何发现和分析 MySQL 中的慢查询？","expectedSources":["MySQL核心问题"],"expectedContent":["慢查询"],"keyPoints":["explain"],"shouldRefuse":false}
+{"id":"mysql-07","question":"MySQL 可重复读级别是如何解决幻读问题的？","expectedSources":["MySQL核心问题"],"expectedContent":["间隙锁"],"keyPoints":["间隙锁","MVCC"],"shouldRefuse":false}
+{"id":"mysql-08","question":"MyISAM 和 InnoDB 有什么区别？","expectedSources":["MySQL核心问题"],"expectedContent":["外键"],"keyPoints":["事务","外键"],"shouldRefuse":false}
+{"id":"concurrent-01","question":"ThreadPoolExecutor 的核心参数有哪些？","expectedSources":["Java并发核心问题"],"expectedContent":["corePoolSize"],"keyPoints":["corePoolSize","maximumPoolSize"],"shouldRefuse":false}
+{"id":"concurrent-02","question":"Java 线程池的拒绝策略有哪些？","expectedSources":["Java并发核心问题"],"expectedContent":["AbortPolicy"],"keyPoints":["AbortPolicy","CallerRuns"],"shouldRefuse":false}
+{"id":"concurrent-03","question":"synchronized 和 ReentrantLock 有什么区别？","expectedSources":["Java并发核心问题"],"expectedContent":["可中断"],"keyPoints":["可中断","公平"],"shouldRefuse":false}
+{"id":"concurrent-04","question":"volatile 关键字能解决什么问题？","expectedSources":["Java并发核心问题"],"expectedContent":["volatile"],"keyPoints":["可见性","指令重排"],"shouldRefuse":false}
+{"id":"concurrent-05","question":"ThreadLocal 为什么会发生内存泄漏？如何避免？","expectedSources":["Java并发核心问题"],"expectedContent":["弱引用"],"keyPoints":["弱引用"],"shouldRefuse":false}
+{"id":"concurrent-06","question":"死锁产生的四个必要条件是什么？","expectedSources":["Java并发核心问题"],"expectedContent":["循环等待"],"keyPoints":["互斥","循环等待"],"shouldRefuse":false}
+{"id":"concurrent-07","question":"AQS 的核心原理是什么？","expectedSources":["Java并发核心问题"],"expectedContent":["CLH"],"keyPoints":["state","CLH"],"shouldRefuse":false}
+{"id":"concurrent-08","question":"什么是 Java 内存模型 JMM？","expectedSources":["Java并发核心问题"],"expectedContent":["JMM"],"keyPoints":["happens-before","可见性"],"shouldRefuse":false}
+{"id":"concurrent-09","question":"Java 原子类是如何实现线程安全的？","expectedSources":["Java并发核心问题"],"expectedContent":["原子类"],"keyPoints":["CAS"],"shouldRefuse":false}
+{"id":"concurrent-10","question":"乐观锁一般怎么实现？","expectedSources":["Java并发核心问题"],"expectedContent":["乐观锁"],"keyPoints":["版本号","CAS"],"shouldRefuse":false}
+{"id":"network-01","question":"TCP 和 UDP 有什么区别？分别用在什么场景？","expectedSources":["计算机网络核心问题"],"expectedContent":["面向连接"],"keyPoints":["面向连接","尽最大努力"],"shouldRefuse":false}
+{"id":"network-02","question":"HTTPS 是如何建立安全连接的？","expectedSources":["计算机网络核心问题"],"expectedContent":["TLS"],"keyPoints":["TLS","对称"],"shouldRefuse":false}
+{"id":"network-03","question":"HTTP/2 相比 HTTP/1.1 做了哪些改进？","expectedSources":["计算机网络核心问题"],"expectedContent":["头部压缩"],"keyPoints":["头部压缩","多路复用"],"shouldRefuse":false}
+{"id":"network-04","question":"HTTP/3 为什么放弃 TCP 改用 QUIC？","expectedSources":["计算机网络核心问题"],"expectedContent":["0-RTT"],"keyPoints":["UDP"],"shouldRefuse":false}
+{"id":"network-05","question":"OSI 七层模型分为哪几层？各层的作用是什么？","expectedSources":["计算机网络核心问题"],"expectedContent":["七层"],"keyPoints":["应用层","传输层"],"shouldRefuse":false}
+{"id":"network-06","question":"WebSocket 和 SSE 有什么区别？","expectedSources":["计算机网络核心问题"],"expectedContent":["全双工"],"keyPoints":["全双工"],"shouldRefuse":false}
+{"id":"refusal-01","question":"Kubernetes 中如何配置 Pod 的亲和性调度？","expectedSources":[],"expectedContent":[],"keyPoints":[],"shouldRefuse":true}
+{"id":"refusal-02","question":"编译器的词法分析器是如何构造 token 流的？","expectedSources":[],"expectedContent":[],"keyPoints":[],"shouldRefuse":true}
+{"id":"refusal-03","question":"Raft 共识算法是如何进行领导者选举的？","expectedSources":[],"expectedContent":[],"keyPoints":[],"shouldRefuse":true}
+{"id":"refusal-04","question":"神经网络中的反向传播是如何计算梯度的？","expectedSources":[],"expectedContent":[],"keyPoints":[],"shouldRefuse":true}
+{"id":"refusal-05","question":"操作系统如何选择页面置换算法？","expectedSources":[],"expectedContent":[],"keyPoints":[],"shouldRefuse":true}
+# ---- v1.1 口语化改写题（题面避开文档原词，考验语义检索）----
+{"id":"para-01","question":"Redis 的日志文件越来越大会不会拖慢重启恢复？有什么办法控制它的大小？","expectedSources":["Redis持久化"],"expectedContent":["AOF 重写"],"keyPoints":["重写","fork"],"shouldRefuse":false}
+{"id":"para-02","question":"数据库读一行数据的时候不加锁，也不会读到别人改了一半的数据，这是怎么做到的？","expectedSources":["MySQL核心问题"],"expectedContent":["MVCC"],"keyPoints":["MVCC","undo"],"shouldRefuse":false}
+{"id":"para-03","question":"程序突然断电了，内存里还没写到磁盘的数据怎么办？","expectedSources":["MySQL核心问题"],"expectedContent":["redo"],"keyPoints":["redo","崩溃"],"shouldRefuse":false}
+{"id":"para-04","question":"Java 里想让一个变量改了之后别的线程马上能看到，应该用什么关键字？","expectedSources":["Java并发核心问题"],"expectedContent":["volatile"],"keyPoints":["volatile"],"shouldRefuse":false}
+{"id":"para-05","question":"往线程池里扔任务，池子满了又排队排不上的时候，这个任务去哪了？","expectedSources":["Java并发核心问题"],"expectedContent":["拒绝策略"],"keyPoints":["拒绝策略","AbortPolicy"],"shouldRefuse":false}
+{"id":"para-06","question":"两个线程互相等着对方手里的锁一直卡住，这种情况要同时满足哪几个条件才会发生？","expectedSources":["Java并发核心问题"],"expectedContent":["循环等待"],"keyPoints":["互斥","循环等待"],"shouldRefuse":false}
+{"id":"para-07","question":"网页想和服务器保持一条能随时互相推送消息的长连接，有哪些方案？","expectedSources":["计算机网络核心问题"],"expectedContent":["全双工"],"keyPoints":["WebSocket","全双工"],"shouldRefuse":false}
+{"id":"para-08","question":"为什么新版 HTTP 协议放弃了 TCP，改用基于 UDP 的传输协议来让网页打开更快？","expectedSources":["计算机网络核心问题"],"expectedContent":["0-RTT"],"keyPoints":["QUIC"],"shouldRefuse":false}
+{"id":"para-09","question":"Redis 内存快满的时候它会自动删掉一些 key，是按什么规则挑的？","expectedSources":["Redis核心问题"],"expectedContent":["内存淘汰"],"keyPoints":["LRU","maxmemory"],"shouldRefuse":false}
+{"id":"para-10","question":"MySQL 明明建了索引但查询还是很慢，可能是什么原因？","expectedSources":["MySQL核心问题"],"expectedContent":["索引失效"],"keyPoints":["最左","函数"],"shouldRefuse":false}
+{"id":"para-11","question":"不想用重量级的锁，想先直接改数据、提交的时候再检查有没有人动过它，这种思路叫什么？","expectedSources":["Java并发核心问题"],"expectedContent":["乐观锁"],"keyPoints":["版本号","CAS"],"shouldRefuse":false}
+{"id":"para-12","question":"线程自己存一份变量副本，用完不清理的话会出什么问题？","expectedSources":["Java并发核心问题"],"expectedContent":["弱引用"],"keyPoints":["弱引用"],"shouldRefuse":false}
+{"id":"para-13","question":"为什么磁盘上的索引要用那种矮胖的多叉树，而不是二叉的平衡树？","expectedSources":["MySQL核心问题"],"expectedContent":["非叶子"],"keyPoints":["非叶子","叶子"],"shouldRefuse":false}

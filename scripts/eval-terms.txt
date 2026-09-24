@@ -1,0 +1,30 @@
+# Round 3: gold-phrase candidates for chunk-level content recall.
+# Want: appears in exactly 1 corpus file (the doc that should answer the case).
+线程模型
+单线程
+AOF 重写
+重写缓冲区
+HyperLogLog
+Bitmap
+SortedSet
+ZSet
+红黑树
+索引失效
+隔离级别
+Next-Key
+外键
+ReentrantLock
+volatile
+ThreadLocal
+请求并占有
+JMM
+乐观锁
+面向连接
+尽最大努力
+0-RTT
+HTTP/3
+七层
+全双工
+SSE
+WebSocket
+应用层
