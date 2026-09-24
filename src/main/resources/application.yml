@@ -1,0 +1,71 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: doc-rag
+
+  # No datasource on purpose: nothing is persisted to a relational DB yet.
+  # PostgreSQL joins back in week 6 (async ingestion state machine, see PLAN.md).
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+  threads:
+    virtual:
+      enabled: true
+
+elasticsearch:
+  uris: http://localhost:9200
+  index: doc_chunks
+  connect-timeout-ms: 3000
+  socket-timeout-ms: 30000
+
+llm:
+  # Aliyun Bailian (DashScope) OpenAI-compatible endpoint
+  base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  api-key: ${LLM_API_KEY:}
+  embedding-model: text-embedding-v4
+  embedding-dimension: 1024   # text-embedding-v4 default; must match the ES index mapping
+  chat-model: qwen-plus
+  temperature: 0.1
+  max-context-chars: 6000
+
+rag:
+  chunk-size: 500
+  chunk-overlap: 80
+  default-top-k: 8
+  candidate-k: 30
+  min-vector-score: 0.35
+  rrf-k: 60
+  enable-vector: true
+  enable-lexical: true
+  enable-rerank: false
+  cache-ttl-seconds: 600
+  lex-weight: 1.0
+  vec-weight: 1.0
+  rerank-min-candidates: 0   # skip rerank when fused candidates <= this; 0 = always rerank
+
+# Rerank provider: "jina" (TEI/Jina-compatible /rerank endpoint) or "dashscope"
+# (Aliyun Bailian native text-rerank API, reuses llm.api-key).
+# Only consulted when rag.enable-rerank=true.
+rerank:
+  provider: jina
+  base-url: http://localhost:8081
+  model: BAAI/bge-reranker-v2-m3
+  api-key: ""
+
+eval:
+  cases-file: eval/sample-eval.jsonl
+
+logging:
+  level:
+    root: INFO
+    com.zzx.docrag: DEBUG
