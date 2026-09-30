@@ -31,9 +31,22 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
-    <!-- No JPA/datasource yet: chunks live in Elasticsearch and nothing else is persisted.
-         Week 6 of PLAN.md reintroduces PostgreSQL with real tables for the async ingestion
-         state machine (PENDING/PROCESSING/DONE/FAILED) - add it back then, not before. -->
+    <!-- Async ingestion (week 6): PostgreSQL holds the document state machine
+         (PENDING/PROCESSING/DONE/FAILED + attempts + error), RabbitMQ carries the jobs
+         with retry and a dead-letter queue. Chunks themselves stay in Elasticsearch. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-amqp</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-data-redis</artifactId>

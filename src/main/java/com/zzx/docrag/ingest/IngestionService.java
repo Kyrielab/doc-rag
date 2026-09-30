@@ -23,9 +23,9 @@ import java.util.Optional;
  * <p>Re-ingesting the same document deletes the previous chunks first, which makes the
  * pipeline idempotent and keeps the corpus consistent while iterating on chunk settings.
  *
- * <p>Next iteration (documented, not yet implemented): move embedding to a message consumer
- * so uploads return immediately and a burst of documents is absorbed by a queue instead of
- * occupying request threads.
+ * <p>Async orchestration (database record, queue publish, retries, status) lives in
+ * {@link DocumentService}; this class stays synchronous and single-purpose so the sync API
+ * path and the queue consumer share exactly the same ingestion logic.
  */
 @Service
 public class IngestionService {
@@ -76,8 +76,13 @@ public class IngestionService {
     }
 
     private IngestResult process(ParsedDocument parsed, String docId, long parseMillis, long started) {
+        // YAML frontmatter is keyword-stuffed metadata ("content: 面试题,TCP/IP,..."). Indexed
+        // as body text it becomes a "universal magnet" chunk matching almost any query -
+        // observed sitting in top-3 results during experiment 9. Strip before chunking so
+        // every ingestion path benefits.
+        ParsedDocument cleaned = new ParsedDocument(parsed.title(), stripYamlFrontmatter(parsed.text()));
         long t1 = System.currentTimeMillis();
-        List<Chunk> chunkSkeletons = chunker.chunk(parsed, docId);
+        List<Chunk> chunkSkeletons = chunker.chunk(cleaned, docId);
         long chunkMillis = System.currentTimeMillis() - t1;
 
         if (chunkSkeletons.isEmpty()) {
@@ -132,9 +137,11 @@ public class IngestionService {
 
     /**
      * Document id is derived from the file name, so uploading a corrected version of the same
-     * file replaces its content instead of duplicating it.
+     * file replaces its content instead of duplicating it. Static because DocumentService
+     * must compute the same id BEFORE ingestion starts (the database record and the queue
+     * message both carry it).
      */
-    private String buildDocId(String fileName, String title) {
+    public static String buildDocId(String fileName, String title) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hash = digest.digest((fileName + "|" + title).getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -142,6 +149,27 @@ public class IngestionService {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 unavailable", e);
         }
+    }
+
+    /**
+     * Strips a leading YAML frontmatter block ({@code ---} fence ... {@code ---} fence).
+     * Returns the input unchanged when there is no well-formed block, so non-Markdown
+     * sources and documents that legitimately start with dashes are safe.
+     */
+    static String stripYamlFrontmatter(String text) {
+        if (text == null) {
+            return "";
+        }
+        String normalized = text.replace("\r\n", "\n").stripLeading();
+        if (!normalized.startsWith("---\n")) {
+            return text;
+        }
+        int close = normalized.indexOf("\n---", 3);
+        if (close < 0) {
+            return text; // unterminated fence: treat the whole thing as content
+        }
+        int nextLine = normalized.indexOf('\n', close + 1);
+        return nextLine < 0 ? "" : normalized.substring(nextLine + 1);
     }
 
     private String stripExtension(String fileName) {

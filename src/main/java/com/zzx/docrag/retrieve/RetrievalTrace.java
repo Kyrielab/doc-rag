@@ -18,6 +18,8 @@ import java.util.List;
  * @param fusionMillis      fusion latency
  * @param rerankMillis      rerank latency, 0 when disabled
  * @param generateMillis    LLM latency
+ * @param promptContextChars characters of retrieved content embedded in the prompt;
+ *                          the cost metric for context compression
  * @param totalMillis       end-to-end latency
  * @param topChunks         final chunks handed to the LLM
  * @param retrievedChunkIds ids of those chunks, used by the evaluation harness
@@ -36,6 +38,7 @@ public record RetrievalTrace(
         long fusionMillis,
         long rerankMillis,
         long generateMillis,
+        int promptContextChars,
         long totalMillis,
         List<Merged> topChunks,
         List<String> retrievedChunkIds,

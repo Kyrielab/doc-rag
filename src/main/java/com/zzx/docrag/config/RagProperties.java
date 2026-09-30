@@ -27,6 +27,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param enableRewrite    rewrite the user query into search-friendly terms before retrieval
  *                         (A/B dimension; costs one auxiliary LLM call per query, fails open
  *                         to the original query on any error)
+ * @param enableCompression sentence-level context compression before prompt building
+ *                         (A/B dimension; trades prompt cost against answer completeness)
+ * @param compressionChunkChars per-chunk character budget when compression is on
  */
 @ConfigurationProperties(prefix = "rag")
 public record RagProperties(
@@ -43,7 +46,9 @@ public record RagProperties(
         double lexWeight,
         double vecWeight,
         int rerankMinCandidates,
-        boolean enableRewrite
+        boolean enableRewrite,
+        boolean enableCompression,
+        int compressionChunkChars
 ) {
     public RagProperties {
         if (chunkSize <= 0) {
@@ -69,6 +74,9 @@ public record RagProperties(
         }
         if (rerankMinCandidates < 0) {
             rerankMinCandidates = 0;
+        }
+        if (compressionChunkChars <= 0) {
+            compressionChunkChars = 250;
         }
     }
 }

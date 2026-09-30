@@ -1,11 +1,11 @@
 package com.zzx.docrag.api;
 
-import com.zzx.docrag.es.ChunkGateway;
-import com.zzx.docrag.es.DocInfo;
-import com.zzx.docrag.ingest.IngestResult;
+import com.zzx.docrag.ingest.DocumentRecord;
+import com.zzx.docrag.ingest.DocumentService;
 import com.zzx.docrag.ingest.IngestionService;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,56 +25,70 @@ import java.util.Map;
 
 /**
  * Document ingestion and management.
+ *
+ * <p>Async by default: an upload stages the file, writes the PENDING record and publishes
+ * the job, then returns 202 immediately - a 40 MB manual no longer occupies a request
+ * thread for the whole embed-and-index run. {@code ?sync=true} keeps the old blocking
+ * behaviour for scripts and development.
  */
 @RestController
 @RequestMapping("/api/documents")
 public class DocumentController {
 
-    private final IngestionService ingestionService;
-    private final ChunkGateway chunkGateway;
+    /** Staging directory for uploaded files; the consumer reads from here asynchronously. */
+    private static final Path UPLOAD_DIR = Path.of("data", "uploads");
 
-    public DocumentController(IngestionService ingestionService, ChunkGateway chunkGateway) {
-        this.ingestionService = ingestionService;
-        this.chunkGateway = chunkGateway;
+    private final DocumentService documentService;
+
+    public DocumentController(DocumentService documentService) {
+        this.documentService = documentService;
     }
 
-    /**
-     * Uploads a file. The multipart payload is streamed to a temporary file rather than held
-     * in memory, so a 40 MB manual does not become a 40 MB heap allocation per concurrent
-     * upload.
-     */
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public IngestResult upload(@RequestPart("file") MultipartFile file,
-                               @RequestParam(value = "title", required = false) String title) throws IOException {
+    public ResponseEntity<Map<String, Object>> upload(
+            @RequestPart("file") MultipartFile file,
+            @RequestParam(value = "title", required = false) String title,
+            @RequestParam(value = "sync", defaultValue = "false") boolean sync) throws IOException {
         if (file.isEmpty()) {
             throw new IllegalArgumentException("Uploaded file is empty");
         }
         String fileName = file.getOriginalFilename() == null ? "upload.bin" : file.getOriginalFilename();
-        Path temp = Files.createTempFile("docrag-", "-" + fileName.replaceAll("[^A-Za-z0-9._-]", "_"));
-        try {
-            file.transferTo(temp);
-            return ingestionService.ingest(temp, title);
-        } finally {
-            Files.deleteIfExists(temp);
-        }
+        String resolvedTitle = (title == null || title.isBlank()) ? stripExtension(fileName) : title;
+        // Stage under a deterministic docId-prefixed name: re-uploads replace the staged file,
+        // and CJK file names survive (only path-hostile characters are normalized).
+        String docId = IngestionService.buildDocId(fileName, resolvedTitle);
+        String safeName = fileName.replaceAll("[^A-Za-z0-9._\\u4e00-\\u9fff-]", "_");
+        Files.createDirectories(UPLOAD_DIR);
+        Path staged = UPLOAD_DIR.resolve(docId + "-" + safeName).toAbsolutePath();
+        file.transferTo(staged);
+
+        Map<String, Object> body = documentService.submitFile(staged, fileName, title, sync);
+        return sync ? ResponseEntity.ok(body) : ResponseEntity.accepted().body(body);
     }
 
-    /** Ingests pasted text. */
+    /** Ingests pasted text; async (202) by default, {@code ?sync=true} blocks and reports. */
     @PostMapping("/text")
-    public IngestResult ingestText(@RequestBody @Valid IngestTextRequest request) {
-        return ingestionService.ingestText(request.title(), request.content());
+    public ResponseEntity<Map<String, Object>> ingestText(
+            @RequestBody @Valid IngestTextRequest request,
+            @RequestParam(value = "sync", defaultValue = "false") boolean sync) {
+        Map<String, Object> body = documentService.submitText(request.title(), request.content(), sync);
+        return sync ? ResponseEntity.ok(body) : ResponseEntity.accepted().body(body);
     }
 
-    /** Lists ingested documents with chunk counts. */
+    /** Lists documents with their state-machine status (PENDING/PROCESSING/DONE/FAILED). */
     @GetMapping
-    public List<DocInfo> list(@RequestParam(value = "limit", defaultValue = "100") int limit) {
-        return chunkGateway.listDocuments(limit);
+    public List<DocumentRecord> list() {
+        return documentService.list();
     }
 
-    /** Removes a document and all of its chunks. */
+    /** Removes a document: Elasticsearch chunks and the status record. */
     @DeleteMapping("/{docId}")
     public Map<String, Object> delete(@PathVariable String docId) {
-        int deleted = chunkGateway.deleteByDocId(docId);
-        return Map.of("docId", docId, "deletedChunks", deleted);
+        return documentService.delete(docId);
+    }
+
+    private static String stripExtension(String fileName) {
+        int dot = fileName.lastIndexOf('.');
+        return dot > 0 ? fileName.substring(0, dot) : fileName;
     }
 }

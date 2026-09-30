@@ -1,6 +1,7 @@
 package com.zzx.docrag.rag;
 
 import com.zzx.docrag.config.LlmProperties;
+import com.zzx.docrag.config.RagProperties;
 import com.zzx.docrag.retrieve.Merged;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,8 +17,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class PromptBuilderTest {
 
-    private final PromptBuilder builder = new PromptBuilder(
-            new LlmProperties("http://localhost:11434/v1", "", "bge-m3", 1024, "qwen2.5", 0.1, 6000, ""));
+    /** Compression disabled here: these tests pin prompt SHAPE, compression has its own tests. */
+    private static final RagProperties RAG = new RagProperties(
+            500, 80, 8, 30, 0.35, 60, true, true, false, 600, 1.0, 1.0, 0, false, false, 250);
+
+    private static PromptBuilder newBuilder(int maxContextChars) {
+        return new PromptBuilder(
+                new LlmProperties("http://localhost:11434/v1", "", "bge-m3", 1024, "qwen2.5", 0.1, maxContextChars, ""),
+                new ContextCompressor(RAG));
+    }
+
+    private final PromptBuilder builder = newBuilder(6000);
 
     private static Merged chunk(String id, String content) {
         return new Merged(id, "doc-1", "manual", "manual.pdf", content, 0.02, null,
@@ -139,7 +149,7 @@ class PromptBuilderTest {
     void lettersExcerpts() {
         List<Merged> chunks = List.of(chunk("c0", "alpha"), chunk("c1", "beta"));
 
-        String prompt = builder.userPrompt("what is alpha?", chunks);
+        String prompt = builder.userPrompt("what is alpha?", chunks).text();
 
         assertThat(prompt).contains("[A]").contains("[B]").contains("alpha").contains("beta");
         assertThat(prompt).contains("what is alpha?");
@@ -162,11 +172,10 @@ class PromptBuilderTest {
     @Test
     @DisplayName("chunks beyond the context budget are dropped, not truncated mid-sentence")
     void respectsContextBudget() {
-        PromptBuilder tight = new PromptBuilder(
-                new LlmProperties("http://localhost:11434/v1", "", "bge-m3", 1024, "qwen2.5", 0.1, 60, ""));
+        PromptBuilder tight = newBuilder(60);
         List<Merged> chunks = List.of(chunk("c0", "a".repeat(200)), chunk("c1", "b".repeat(200)));
 
-        String prompt = tight.userPrompt("q", chunks);
+        String prompt = tight.userPrompt("q", chunks).text();
 
         assertThat(prompt).doesNotContain("b".repeat(200));
     }

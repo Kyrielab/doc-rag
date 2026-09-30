@@ -2,8 +2,10 @@ package com.zzx.docrag;
 
 import com.zzx.docrag.config.LlmProperties;
 import com.zzx.docrag.config.RagProperties;
+import com.zzx.docrag.ingest.DocumentRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
@@ -15,10 +17,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Verifies that the Spring context wires up and that configuration binds.
  *
- * <p>Redis auto-configuration is excluded and the Redis template is replaced by a mock, so
- * this test passes on a laptop with no Docker running. A failure here therefore always means
- * a wiring or configuration bug, never "I forgot to start the infrastructure" — which is
- * exactly what makes it worth running in CI.
+ * <p>All infrastructure auto-configuration (Redis, PostgreSQL/JPA, RabbitMQ) is excluded and
+ * the templates/repositories are replaced by mocks, so this test passes on a laptop with no
+ * Docker running. A failure here therefore always means a wiring or configuration bug, never
+ * "I forgot to start the infrastructure" - which is exactly what makes it worth running in CI.
  *
  * <p>The Elasticsearch client, the chunk gateway, the ingestion pipeline and every controller
  * are still created for real: those are the collaborators whose wiring we actually want proven.
@@ -26,7 +28,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(properties = {
         "spring.autoconfigure.exclude="
                 + "org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration,"
-                + "org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration"
+                + "org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration,"
+                + "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,"
+                + "org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration,"
+                + "org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration,"
+                + "org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration"
 })
 class DocRagApplicationTests {
 
@@ -35,6 +41,12 @@ class DocRagApplicationTests {
 
     @MockitoBean
     private StringRedisTemplate stringRedisTemplate;
+
+    @MockitoBean
+    private DocumentRepository documentRepository;
+
+    @MockitoBean
+    private RabbitTemplate rabbitTemplate;
 
     @Test
     @DisplayName("the application context loads with every bean wired")
@@ -54,6 +66,10 @@ class DocRagApplicationTests {
         assertThat(context.containsBean("elasticsearchChunkGateway")).isTrue();
         assertThat(context.containsBean("textChunker")).isTrue();
         assertThat(context.containsBean("promptBuilder")).isTrue();
+        assertThat(context.containsBean("contextCompressor")).isTrue();
+        assertThat(context.containsBean("queryRewriter")).isTrue();
+        assertThat(context.containsBean("documentService")).isTrue();
+        assertThat(context.containsBean("ingestConsumer")).isTrue();
     }
 
     @Test
@@ -92,6 +108,8 @@ class DocRagApplicationTests {
         assertThat(rag.enableVector()).isTrue();
         assertThat(rag.enableRerank()).isFalse();
         assertThat(rag.enableRewrite()).isFalse();
+        assertThat(rag.enableCompression()).isFalse();
+        assertThat(rag.compressionChunkChars()).isEqualTo(250);
 
         LlmProperties llm = context.getBean(LlmProperties.class);
         // Aliyun Bailian text-embedding-v4 default dimension; keep in sync with application.yml

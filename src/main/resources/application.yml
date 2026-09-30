@@ -5,8 +5,38 @@ spring:
   application:
     name: doc-rag
 
-  # No datasource on purpose: nothing is persisted to a relational DB yet.
-  # PostgreSQL joins back in week 6 (async ingestion state machine, see PLAN.md).
+  # Async ingestion state machine (week 6): PostgreSQL holds document status/attempts/error.
+  datasource:
+    url: jdbc:postgresql://localhost:5432/docrag
+    username: docrag
+    password: docrag
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      # Boot even if PG is still warming up; queries fail loudly later instead of the app
+      # refusing to start (same resilience stance as IndexInitializer).
+      initialization-fail-timeout: -1
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: docrag
+    password: docrag
+    listener:
+      simple:
+        # Consumer-side retry with backoff; after max-attempts the message is rejected.
+        # default-requeue-rejected=false sends the reject to the DLQ (see RabbitConfig)
+        # instead of hot-looping a poison message forever.
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 5000
+          multiplier: 2
+        default-requeue-rejected: false
 
   data:
     redis:
@@ -56,6 +86,8 @@ rag:
   vec-weight: 1.0
   rerank-min-candidates: 0   # skip rerank when fused candidates <= this; 0 = always rerank
   enable-rewrite: false      # LLM query rewriting before retrieval (A/B dimension)
+  enable-compression: false  # sentence-level context compression (A/B dimension)
+  compression-chunk-chars: 250
 
 # Rerank provider: "jina" (TEI/Jina-compatible /rerank endpoint) or "dashscope"
 # (Aliyun Bailian native text-rerank API, reuses llm.api-key).

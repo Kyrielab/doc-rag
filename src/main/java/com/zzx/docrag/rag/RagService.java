@@ -100,13 +100,14 @@ public class RagService {
 
         long generateStarted = System.currentTimeMillis();
         String answerText;
+        int promptContextChars = 0;
         if (chunks.isEmpty()) {
             // No grounding material at all: refuse without paying for an LLM call.
             answerText = "INSUFFICIENT_CONTEXT";
         } else {
-            answerText = llmClient.complete(
-                    promptBuilder.systemPrompt(),
-                    promptBuilder.userPrompt(question, chunks));
+            PromptBuilder.UserPrompt prompt = promptBuilder.userPrompt(question, chunks);
+            promptContextChars = prompt.contextChars();
+            answerText = llmClient.complete(promptBuilder.systemPrompt(), prompt.text());
         }
         long generateMillis = System.currentTimeMillis() - generateStarted;
 
@@ -126,6 +127,7 @@ public class RagService {
                 retrieval.fusionMillis(),
                 retrieval.rerankMillis(),
                 generateMillis,
+                promptContextChars,
                 System.currentTimeMillis() - started,
                 chunks,
                 Merged.idsOf(chunks),
@@ -163,6 +165,7 @@ public class RagService {
                 + "|vec=" + ragProperties.enableVector()
                 + "|rerank=" + ragProperties.enableRerank()
                 + "|rewrite=" + ragProperties.enableRewrite()
+                + "|compress=" + ragProperties.enableCompression() + ":" + ragProperties.compressionChunkChars()
                 + "|chunk=" + ragProperties.chunkSize()
                 + "|model=" + llmProperties.chatModel()
                 + "|prompt=" + sha256(promptBuilder.systemPrompt() + "|" + PromptBuilder.TEMPLATE_VERSION).substring(0, 16);
@@ -215,7 +218,7 @@ public class RagService {
         List<Citation> citations = promptBuilder.distinctCitations(refs, chunks);
         RetrievalTrace trace = new RetrievalTrace(
                 question, question, 0, 0, 0, chunks.size(),
-                0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0,
                 System.currentTimeMillis() - started,
                 chunks, cached.chunkIds(), true, cached.rerankSkipped());
         return QaAnswer.of(cached.answer(), citations, refs, cached.refused(), trace);

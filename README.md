@@ -46,7 +46,9 @@
    │  Elasticsearch  单索引同时承载 BM25 + dense_vector │
    └───────────────────────────────────────────────┘
 
-   写入链路：解析(PDF/DOCX/TXT) → 切分 → 向量化 → 批量索引
+   写入链路（异步）：API 落库 PENDING + 投递 MQ（毫秒级返回 202）
+                    → 消费者：解析(PDF/DOCX/TXT/MD，剥离 YAML frontmatter) → 切分
+                    → 向量化 → 批量索引 → DONE/FAILED（重试 3 次后进死信队列）
 ```
 
 **关键设计取舍（每条都能展开讲）**
@@ -64,7 +66,11 @@
 | 缓存指纹 | key 含 systemPrompt 哈希 + 模板版本号 + 模型名 | 只指纹 system prompt 不够：改了 user prompt 模板后旧缓存照常命中，实测被假结果骗过一次，因此模板版本常量随形状变更手动递增 |
 | 重排失败 | fail-open，降级到融合顺序 | 降级回答优于 500，且 trace 记录"已跳过重排" |
 | 检索失败 | 单路失败仍返回另一路结果 | 一个检索器挂了不应该是整个查询挂掉 |
-| 关系库 | 暂不接 JPA/PostgreSQL | 当前没有任何需要持久化的关系数据，死依赖只会制造启动失败点；第 6 周异步入库状态机落地时再带真实表结构接入 |
+| 异步入库 | 落库 PENDING + MQ 投递 + 消费者处理（RabbitMQ，重试 3 次后进死信队列），`?sync=true` 保留同步路径给脚本 | 上传接口不再被向量化阻塞（大文档从 20s 级降到毫秒级返回）；队列比线程池多了持久化、跨实例扩展和积压可观测；消息只带 docId，状态和载荷在 PostgreSQL，重投递不会复活过期内容 |
+| 入库幂等 | docId = sha256(文件名+标题)，ES 写入前先 delete_by_query，消费者对 DONE 记录跳过 | 重传/重投递/手动重放都是替换而不是重复 |
+| frontmatter 剥离 | 解析后、切分前去掉 YAML 元数据块 | 关键词堆叠的元数据被当正文索引会成为匹配一切的"万能磁铁"chunk（实验 9 在 top-3 里直接抓到） |
+| 上下文压缩 | 句级筛选：CJK 二元组+拉丁词与问题的重合度打分，按分取句、按原文顺序拼接，预算 250 字符/chunk | 压缩器本身必须几乎免费（无模型调用），否则省的 token 不够它自己的成本；A/B 数据见 experiments.md 实验 11 |
+| 关系库 | PostgreSQL 只存入库状态机（documents 表），chunk 正文仍在 ES | 各存储只做自己擅长的事；状态机需要事务和查询，全文/向量检索需要 ES |
 
 **真实踩坑记录（全部由端到端实跑暴露，每个都已修复并有回归测试/日志证据）**
 
@@ -72,7 +78,8 @@
 2. 引用标签三轮迭代：数字 `[3]` → 加前缀 `[S3]` → 字母+白名单 `[A]`。前两轮都失败于同一根因：标签里的数字和正文章节号竞争。教训：**别跟模型讲道理，改掉会冲突的 token 空间**。
 3. 缓存指纹漏了 user prompt 模板 → 改完提示词重测，拿到的还是旧缓存答案（`totalMs=58, genMs=0` 识破）。教训：**验证脚本必须打印 cacheHit**，否则假结果以假乱真。
 4. Windows 下 PowerShell 脚本编码坑：无 BOM 的 UTF-8 .ps1 里的中文按 GBK 误读，问题变乱码 → 词法检索 0 命中。意外收获：乱码问题下**向量检索仍命中正确 chunk**，直观展示了语义检索对词面失真的鲁棒性。修复：中文测试数据放独立 UTF-8 文件、显式 `-Encoding UTF8` 读取，不依赖脚本文件编码。
-5. 无实体类却挂着 JPA starter → PostgreSQL 一停应用就起不来（Hibernate 方言探测硬依赖 JDBC 连接）。教训：**不用的依赖是负资产**。
+5. 无实体类却挂着 JPA starter → PostgreSQL 一停应用就起不来（Hibernate 方言探测硬依赖 JDBC 连接）。教训：**不用的依赖是负资产**。（后记：第 6 周带真实状态机表回归——依赖跟着需求走。）
+6. 手写 `@Bean ObjectMapper` 顶掉 Spring Boot 自动配置的 mapper（少了 JavaTimeModule）→ 状态记录里的 `Instant` 字段一序列化就 500。上下文装配测试全绿也抓不住——**序列化只有真实 HTTP 响应才检验**（Web 层集成测试已入队）。教训：不要无理由重定义框架提供的 bean。
 
 ---
 
@@ -136,21 +143,25 @@ curl http://localhost:8080/api/admin/status
 
 该接口会告诉你 Elasticsearch / Redis 是否可达、模型配置是否生效、检索参数当前取值——排查问题的第一个入口。
 
-### 3.5 灌入文档
+### 3.5 灌入文档（默认异步）
+
+上传接口毫秒级返回 `202 Accepted`（落库 PENDING + 投递 MQ），解析/切分/向量化在消费者里后台执行：
 
 ```bash
-# 文件上传（PDF / DOCX / TXT / MD）
+# 文件上传（PDF / DOCX / TXT / MD）→ 202 {"docId":"...","status":"PENDING"}
 curl -X POST http://localhost:8080/api/documents/upload \
   -F "file=@你的手册.pdf" -F "title=维修手册"
 
-# 直接贴文本
-curl -X POST http://localhost:8080/api/documents/text \
+# 直接贴文本 → 202；脚本/开发想要同步结果时加 ?sync=true（阻塞到完成并返回 chunkCount）
+curl -X POST "http://localhost:8080/api/documents/text?sync=true" \
   -H "Content-Type: application/json" \
   -d '{"title":"故障码说明","content":"P0301 表示第 1 缸失火……"}'
 
-# 查看已入库文档
+# 轮询状态机：PENDING → PROCESSING → DONE(chunkCount) / FAILED(error, attempts)
 curl http://localhost:8080/api/documents
 ```
+
+失败自动重试 3 次（指数退避），仍失败进死信队列 `docrag.ingest.dlq`（管理界面 http://localhost:15672 ，docrag/docrag），记录停在 FAILED 并带最后错误——消息不会静默消失。
 
 ### 3.6 提问
 
@@ -164,15 +175,17 @@ curl -X POST http://localhost:8080/api/answer \
 
 ```json
 {
-  "answer": "应先检查蓄电池电压和燃油供给 [1][2]。",
-  "citations": [{"chunkId":"a1b2c3d4#3","title":"维修手册","source":"维修手册","excerpt":"...","rank":2}],
-  "citationRefs": [{"marker":"[1]","ordinal":1,"valid":true,"chunkId":"a1b2c3d4#3"}],
+  "answer": "应先检查蓄电池电压和燃油供给 [A][B]。",
+  "citations": [{"chunkId":"a1b2c3d4#3","title":"维修手册","source":"维修手册","excerpt":"...","rank":0}],
+  "citationRefs": [{"marker":"[A]","ordinal":1,"valid":true,"chunkId":"a1b2c3d4#3"}],
   "refused": false,
   "citationAccuracy": 1.0,
   "trace": {
+    "rewrittenQuery": "…（开启查询改写时与原问题不同）", "rewriteMillis": 0,
     "lexicalHits": 30, "vectorHits": 30, "fusedCount": 41,
     "lexicalMillis": 12, "vectorMillis": 168, "fusionMillis": 1,
-    "rerankMillis": 0, "generateMillis": 2140, "totalMillis": 2330,
+    "rerankMillis": 0, "generateMillis": 2140, "promptContextChars": 3120,
+    "totalMillis": 2330,
     "retrievedChunkIds": ["..."],
     "cacheHit": false, "rerankSkipped": "disabled by config"
   }
@@ -195,8 +208,9 @@ curl -X POST http://localhost:8080/api/answer \
 
 | 字段 | 含义 |
 |---|---|
-| `expectedSources` | 必须出现在被检索 chunk 的标题或来源中的子串 |
-| `keyPoints` | 答案中必须出现的事实点（大小写不敏感子串匹配） |
+| `expectedSources` | 必须出现在被检索 chunk 的标题或来源中的子串（文档级金标，小语料上会饱和） |
+| `expectedContent` | 正确 chunk 内容中的独享短语（chunk 级金标，主指标 ContentRecall 的依据；唯一性用 `scripts/verify-terms.ps1` 验证） |
+| `keyPoints` | 答案中必须出现的事实点（大小写不敏感子串匹配；只收录"正确答案必然包含"的词） |
 | `shouldRefuse` | 语料确实无法回答时为 `true` |
 
 **如何构造用例集**
@@ -256,6 +270,16 @@ curl -X POST "http://localhost:8080/api/eval/run?label=full&topK=8&skipGeneratio
 
 生成层（hybrid 完整评测，48 次 qwen-plus 调用）：**引用准确率 0.998、拒答准确率 0.979、关键点覆盖率 0.865**、mean 5.5s / p95 10.3s（生成为主）。
 
+**corpus-v2（frontmatter 剥离后，561 chunks）与上下文压缩（第 5/6 周补测）**：
+
+| 配置 | ContentRecall@8 | 引用准确率 | 关键点覆盖率 | 拒答准确率 | 上下文/延迟 |
+|---|---|---|---|---|---|
+| lexical-only（v2 语料） | **0.953**（v1 为 0.884） | — | — | — | mean 15ms |
+| hybrid（v2 语料） | 0.953 | 0.998 | 0.885 | **1.000** | mean 210ms |
+| hybrid + 压缩 250/chunk | 0.953 | 1.000 | 0.844（-4.1pp） | 1.000 | **上下文 -75%、mean -15%** |
+
+关键发现：**frontmatter 剥离（一次解析改动）让纯关键词 +6.9pp，收益超过此前全部算法手段（重排/改写/调参合计零收益）——语料卫生优先于算法**。代价是 v2 上混合对纯关键词的实测优势归零（评测集天花板，混合价值转为词面失配保险）。压缩的成本-质量权衡已量化，默认关闭。详见 `experiments.md` 实验 10/11。
+
 四个最有含金量的结论：
 1. **混合比纯关键词 ContentRecall@8 高 6.9pp**，救回的全是口语化改写题（BM25 词面失配场景）
 2. **混合与纯向量打平但失败集不同**：混合救回向量漏的精确术语题（para-01），却因 RRF 共识偏差丢了向量能命中的 network-01（正确 chunk 只在单路排名靠前，被"两路都中游"的平庸 chunk 挤出 top-8）
@@ -270,10 +294,10 @@ curl -X POST "http://localhost:8080/api/eval/run?label=full&topK=8&skipGeneratio
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/documents/upload` | 上传文件（multipart） |
-| POST | `/api/documents/text` | 贴文本入库 |
-| GET | `/api/documents` | 文档列表与 chunk 数 |
-| DELETE | `/api/documents/{docId}` | 删除文档及其全部 chunk |
+| POST | `/api/documents/upload` | 上传文件（multipart）→ 202 异步受理；`?sync=true` 同步返回结果 |
+| POST | `/api/documents/text` | 贴文本入库 → 202 异步受理；`?sync=true` 同步返回结果 |
+| GET | `/api/documents` | 文档状态机列表（PENDING/PROCESSING/DONE/FAILED + chunkCount + attempts + error） |
+| DELETE | `/api/documents/{docId}` | 删除文档：ES chunks + 状态记录 |
 | POST | `/api/answer` | 问答（返回答案 + 引用 + trace） |
 | POST | `/api/answer/quick?q=` | 便捷问答（浏览器/压测用） |
 | POST | `/api/eval/run` | 跑评测，返回聚合报告 |
@@ -288,14 +312,17 @@ curl -X POST "http://localhost:8080/api/eval/run?label=full&topK=8&skipGeneratio
 mvn test
 ```
 
-**当前状态：29 个测试全部通过**（JDK 21.0.12 / Maven 3.9.16 / Spring Boot 3.5.6 实测）。
+**当前状态：46 个测试全部通过**（JDK 21.0.12 / Maven 3.9.16 / Spring Boot 3.5.6 实测）。
 
 | 测试类 | 覆盖内容 |
 |---|---|
 | `DocRagApplicationTests` | Spring 容器装配（6 个用例）：检索/问答/入库协作 bean、四个 Controller、三个解析器、重排默认关闭、配置项绑定。排除存储自动配置并用 mock 替换 Redis 模板，**无需 Docker 即可运行**，因此失败必然意味着接线或配置有 bug |
 | `ReciprocalRankFusionTest` | 两路命中优先、只用排名不用原始分数、权重影响排序、缺失排名记为 miss、空输入不崩 |
 | `TextChunkerTest` | 尺寸预算、相邻 chunk 重叠、chunk id 确定性、超长句硬切、空输入不产出空 chunk |
-| `PromptBuilderTest` | 引用解析、越界标记判为无效、重复引用去重、引用准确率、拒答哨兵、上下文预算 |
+| `PromptBuilderTest` | 引用解析、越界标记判为无效、重复引用去重、引用准确率、拒答哨兵（前置判定/后置警示语不算拒答——线上故障回归）、裸数字不是引用、上下文预算 |
+| `QueryRewriterTest` | 禁用直通、供应商故障 fail-open、改写模型选择与回退、超长输出拒用、清洗（首行/剥引号） |
+| `ContextCompressorTest` | 禁用/短文直通、保留相关句丢弃填充句、CJK 二元组打分、保持原文顺序、无相关句退化为前缀截断 |
+| `IngestionFrontmatterTest` | YAML 块剥离、无围栏不动、围栏不闭合不吞正文、CRLF 兼容 |
 
 ---
 
@@ -303,18 +330,17 @@ mvn test
 
 **当前限制**
 1. PDF 解析依赖文本层，扫描件需要先 OCR；表格和标题层级会丢失
-2. **Markdown 的 YAML frontmatter 会被当正文索引**，形成关键词堆叠的"万能磁铁"chunk 污染检索（network-01 的 top-3 里直接观察到）——下一步最高优先级
-3. 查询改写已实现并实测（qwen-turbo，默认关闭：当前评测集零收益 +402ms/查询，见实验 9）；多轮对话的指代消解未实现
-4. 文档入库同步执行，大量文档会占满请求线程
-5. 关键点覆盖率是弱正确性指标
-6. 无鉴权与多租户隔离
+2. 查询改写与上下文压缩均已实现并 A/B 实测，**默认关闭**（当前评测集上改写零收益 +402ms；压缩省 75% 上下文但覆盖率 -4.1pp）——开关都在配置里，数据见实验 9/11
+3. 异步入库的重试/死信路径拓扑就绪但**未演练**（突发测试零失败，attempts 全 1）
+4. 关键点覆盖率是弱正确性指标
+5. 无鉴权与多租户隔离
+6. 无 Web 层集成测试——bug #10（Instant 序列化 500）证明上下文装配测试抓不住序列化问题
 
 **下一步优先级（按数据支撑的紧迫度排序）**
-- [ ] **frontmatter 剥离**：解析阶段去除 YAML 元数据，重灌语料重跑基线（有 trace 直接证据，预期词法侧精度提升）
-- [ ] **评测集 v1.4 治理**：para-03 加领域限定、network-01 放宽多金标、network-05 标为边界用例（归因已完成，见实验 4/9）
-- [ ] **IK 中文分词器**：词级分词替换单字切分，提升 BM25 精度（compose profile 已备好）
-- [ ] **入库异步化**：上传接口只落库 + 投递 MQ，消费者做解析/向量化，支持断点续传与失败重试（体现削峰与可靠性设计）
-- [ ] **上下文压缩**：对召回的 chunk 做句子级筛选，降低 token 成本，记录成本前后对比
+- [ ] **评测集 v1.4 治理**：para-03 加领域限定、network-01 放宽多金标、network-05 复审（归因已完成，纯标注工作；v2 语料上它决定还能不能测出差异）
+- [ ] **死信演练**：投喂毒消息验证 重试 3 次 → FAILED 落库 → DLQ 可达 的完整链路
+- [ ] **Web 层集成测试（MockMvc）**：钉住端点契约与序列化（bug #10 的教训）
+- [ ] **IK 中文分词器**：词级分词替换单字切分（compose profile 已备好；注意 v2 语料下词法已 0.953，预期收益收窄）
 - [ ] **流式输出（SSE）端点**：客户端 SSE 帧解析已实现，补 HTTP 端点把首字延迟（TTFT）从秒级降到亚秒级
 - [ ] **可观测性**：接入 Micrometer + Prometheus，把检索/生成各阶段耗时与 token 消耗做成看板
 - [ ] **语义缓存 / 限流配额**：向量近邻缓存提高命中率；按调用方做 token 配额

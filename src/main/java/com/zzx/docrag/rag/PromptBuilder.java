@@ -1,6 +1,7 @@
 package com.zzx.docrag.rag;
 
 import com.zzx.docrag.config.LlmProperties;
+import com.zzx.docrag.config.RagProperties;
 import com.zzx.docrag.retrieve.Merged;
 import org.springframework.stereotype.Component;
 
@@ -65,9 +66,11 @@ public class PromptBuilder {
     public static final String TEMPLATE_VERSION = "v2-letters-whitelist";
 
     private final LlmProperties llmProperties;
+    private final ContextCompressor compressor;
 
-    public PromptBuilder(LlmProperties llmProperties) {
+    public PromptBuilder(LlmProperties llmProperties, ContextCompressor compressor) {
         this.llmProperties = llmProperties;
+        this.compressor = compressor;
     }
 
     public String systemPrompt() {
@@ -88,39 +91,52 @@ public class PromptBuilder {
     }
 
     /**
-     * @param question the user question
-     * @param chunks   ranked chunks to ground the answer in
-     * @return the user prompt, or a prompt that already declares insufficient context
+     * Builds the grounded user prompt.
+     *
+     * <p>Returns the text AND the context character count: the char count is the cost metric
+     * for context compression (CJK roughly 1 char = 1 token, an honest-enough proxy), and it
+     * flows into RetrievalTrace so every answer records what grounding it cost.
      */
-    public String userPrompt(String question, List<Merged> chunks) {
+    public UserPrompt userPrompt(String question, List<Merged> chunks) {
         StringBuilder context = new StringBuilder();
         List<String> labels = new ArrayList<>();
         int used = 0;
+        int contextChars = 0;
         for (int i = 0; i < chunks.size(); i++) {
             Merged chunk = chunks.get(i);
+            String effective = compressor.compress(question, chunk.content());
             // The header deliberately avoids the word "section": measured behaviour showed the
             // model mapping in-text section numbers ("三、...") onto citation labels.
             String block = "[%s] (document: %s, chunk: %s)%n%s%n%n"
-                    .formatted(label(i), chunk.title(), chunk.chunkId(), chunk.content());
+                    .formatted(label(i), chunk.title(), chunk.chunkId(), effective);
             if (used + block.length() > llmProperties.maxContextChars()) {
                 break;
             }
             context.append(block);
             labels.add("[" + label(i) + "]");
             used += block.length();
+            contextChars += effective.length();
         }
 
         if (context.isEmpty()) {
-            return "Question: " + question + "\n\nNo excerpts were retrieved.";
+            return new UserPrompt("Question: " + question + "\n\nNo excerpts were retrieved.", 0);
         }
         // The valid-label whitelist is placed AFTER the excerpts on purpose: instruction
         // recency beats a rule stated only in the system prompt, and enumerating the exact
         // labels removes any guesswork about which citations can possibly be valid.
-        return "Question: " + question
+        String text = "Question: " + question
                 + "\n\nExcerpts:\n" + context
                 + "Valid citation labels for this question: " + String.join(" ", labels) + ". "
                 + "Cite only these labels; any other bracketed token is invalid.\n"
                 + "Answer now.";
+        return new UserPrompt(text, contextChars);
+    }
+
+    /**
+     * @param text         the full user prompt
+     * @param contextChars characters of retrieved chunk content embedded in it (cost metric)
+     */
+    public record UserPrompt(String text, int contextChars) {
     }
 
     /**

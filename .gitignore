@@ -12,6 +12,9 @@ corpus/*.md
 # Logs
 *.log
 
+# Upload staging (async ingestion reads files from here)
+data/
+
 # Personal planning & interview-prep docs (kept local, not part of the public repo)
 PLAN.md
 study/

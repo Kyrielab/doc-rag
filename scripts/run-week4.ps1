@@ -55,7 +55,9 @@ function Ingest-Corpus {
         $tmp = Join-Path $env:TEMP ('ing-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.json')
         [IO.File]::WriteAllText($tmp, $payload, [Text.UTF8Encoding]::new($false))
         $respFile = $tmp + '.resp'
-        $code = curl.exe -s -o $respFile -w '%{http_code}' -X POST 'http://localhost:8080/api/documents/text' `
+        # sync=true: the endpoint became async-by-default in week 6; this script needs the
+        # chunkCount in the response, so it opts into the blocking path explicitly.
+        $code = curl.exe -s -o $respFile -w '%{http_code}' -X POST 'http://localhost:8080/api/documents/text?sync=true' `
             -H 'Content-Type: application/json; charset=utf-8' --data-binary "@$tmp" --max-time 900
         if ($code -eq '200') {
             $r = [IO.File]::ReadAllText($respFile, [Text.Encoding]::UTF8) | ConvertFrom-Json
