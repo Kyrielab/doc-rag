@@ -68,6 +68,7 @@ public class AdminController {
         retrieval.put("enableLexical", ragProperties.enableLexical());
         retrieval.put("enableVector", ragProperties.enableVector());
         retrieval.put("enableRerank", ragProperties.enableRerank());
+        retrieval.put("enableRewrite", ragProperties.enableRewrite());
         status.put("retrieval", retrieval);
         return status;
     }

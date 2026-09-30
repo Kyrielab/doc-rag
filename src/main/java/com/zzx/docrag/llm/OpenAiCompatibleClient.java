@@ -130,7 +130,12 @@ public class OpenAiCompatibleClient implements EmbeddingClient, LlmClient {
 
     @Override
     public String complete(String systemPrompt, String userPrompt) {
-        ObjectNode body = buildChatBody(systemPrompt, userPrompt, false);
+        return complete(properties.chatModel(), systemPrompt, userPrompt);
+    }
+
+    @Override
+    public String complete(String model, String systemPrompt, String userPrompt) {
+        ObjectNode body = buildChatBody(model, systemPrompt, userPrompt, false);
         String raw = restClient.post()
                 .uri("/chat/completions")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -148,7 +153,7 @@ public class OpenAiCompatibleClient implements EmbeddingClient, LlmClient {
 
     @Override
     public String stream(String systemPrompt, String userPrompt, List<String> stopSequences, TokenConsumer onToken) {
-        ObjectNode body = buildChatBody(systemPrompt, userPrompt, true);
+        ObjectNode body = buildChatBody(properties.chatModel(), systemPrompt, userPrompt, true);
         if (stopSequences != null && !stopSequences.isEmpty()) {
             ArrayNode stops = body.putArray("stop");
             stopSequences.forEach(stops::add);
@@ -205,7 +210,7 @@ public class OpenAiCompatibleClient implements EmbeddingClient, LlmClient {
         return answer.toString();
     }
 
-    private ObjectNode buildChatBody(String systemPrompt, String userPrompt, boolean stream) {
+    private ObjectNode buildChatBody(String model, String systemPrompt, String userPrompt, boolean stream) {
         ObjectNode systemMessage = mapper.createObjectNode();
         systemMessage.put("role", "system");
         systemMessage.put("content", systemPrompt);
@@ -219,7 +224,7 @@ public class OpenAiCompatibleClient implements EmbeddingClient, LlmClient {
         messages.add(userMessage);
 
         ObjectNode body = mapper.createObjectNode();
-        body.put("model", properties.chatModel());
+        body.put("model", model);
         body.put("temperature", properties.temperature());
         body.put("stream", stream);
         body.set("messages", messages);

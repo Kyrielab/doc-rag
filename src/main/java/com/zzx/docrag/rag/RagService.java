@@ -116,7 +116,8 @@ public class RagService {
 
         RetrievalTrace trace = new RetrievalTrace(
                 question,
-                question, // query rewriting not enabled yet; see README roadmap
+                retrieval.rewrittenQuery(),
+                retrieval.rewriteMillis(),
                 retrieval.lexicalHits(),
                 retrieval.vectorHits(),
                 retrieval.fusedCount(),
@@ -161,6 +162,7 @@ public class RagService {
                 + "|lex=" + ragProperties.enableLexical()
                 + "|vec=" + ragProperties.enableVector()
                 + "|rerank=" + ragProperties.enableRerank()
+                + "|rewrite=" + ragProperties.enableRewrite()
                 + "|chunk=" + ragProperties.chunkSize()
                 + "|model=" + llmProperties.chatModel()
                 + "|prompt=" + sha256(promptBuilder.systemPrompt() + "|" + PromptBuilder.TEMPLATE_VERSION).substring(0, 16);
@@ -212,7 +214,7 @@ public class RagService {
         List<CitationRef> refs = promptBuilder.parseCitations(cached.answer(), chunks);
         List<Citation> citations = promptBuilder.distinctCitations(refs, chunks);
         RetrievalTrace trace = new RetrievalTrace(
-                question, question, 0, 0, chunks.size(),
+                question, question, 0, 0, 0, chunks.size(),
                 0, 0, 0, 0, 0,
                 System.currentTimeMillis() - started,
                 chunks, cached.chunkIds(), true, cached.rerankSkipped());

@@ -24,6 +24,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *                         per-query latency tax, and when few candidates survive fusion the
  *                         fused order is already all there is to show - a knob for trading
  *                         precision against latency, measurable through the eval harness.
+ * @param enableRewrite    rewrite the user query into search-friendly terms before retrieval
+ *                         (A/B dimension; costs one auxiliary LLM call per query, fails open
+ *                         to the original query on any error)
  */
 @ConfigurationProperties(prefix = "rag")
 public record RagProperties(
@@ -39,7 +42,8 @@ public record RagProperties(
         long cacheTtlSeconds,
         double lexWeight,
         double vecWeight,
-        int rerankMinCandidates
+        int rerankMinCandidates,
+        boolean enableRewrite
 ) {
     public RagProperties {
         if (chunkSize <= 0) {

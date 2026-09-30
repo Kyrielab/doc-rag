@@ -35,6 +35,9 @@ llm:
   embedding-model: text-embedding-v4
   embedding-dimension: 1024   # text-embedding-v4 default; must match the ES index mapping
   chat-model: qwen-plus
+  # Auxiliary model for query rewriting (short formulaic task - cheaper/faster model).
+  # Blank falls back to chat-model.
+  rewrite-model: qwen-turbo
   temperature: 0.1
   max-context-chars: 6000
 
@@ -52,6 +55,7 @@ rag:
   lex-weight: 1.0
   vec-weight: 1.0
   rerank-min-candidates: 0   # skip rerank when fused candidates <= this; 0 = always rerank
+  enable-rewrite: false      # LLM query rewriting before retrieval (A/B dimension)
 
 # Rerank provider: "jina" (TEI/Jina-compatible /rerank endpoint) or "dashscope"
 # (Aliyun Bailian native text-rerank API, reuses llm.api-key).

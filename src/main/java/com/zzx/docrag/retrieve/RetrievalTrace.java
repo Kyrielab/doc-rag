@@ -9,6 +9,7 @@ import java.util.List;
  *
  * @param question          the question as asked
  * @param rewrittenQuery    query actually sent to retrieval (equals question when rewriting is off)
+ * @param rewriteMillis     query-rewriting latency, 0 when rewriting did not run
  * @param lexicalHits       raw hit count from BM25
  * @param vectorHits        raw hit count from dense retrieval
  * @param fusedCount        candidates after RRF
@@ -26,6 +27,7 @@ import java.util.List;
 public record RetrievalTrace(
         String question,
         String rewrittenQuery,
+        long rewriteMillis,
         int lexicalHits,
         int vectorHits,
         int fusedCount,

@@ -8,6 +8,9 @@ import java.util.List;
  * change can be benchmarked without touching the service that calls it.
  *
  * @param chunks          final ranked chunks
+ * @param rewrittenQuery  query actually used for retrieval (equals the original when
+ *                        rewriting is disabled or failed open)
+ * @param rewriteMillis   query-rewriting latency, 0 when it did not run
  * @param lexicalHits     raw BM25 hit count
  * @param vectorHits      raw dense hit count
  * @param fusedCount      candidate count after fusion
@@ -19,6 +22,8 @@ import java.util.List;
  */
 public record RetrievalResult(
         List<Merged> chunks,
+        String rewrittenQuery,
+        long rewriteMillis,
         int lexicalHits,
         int vectorHits,
         int fusedCount,

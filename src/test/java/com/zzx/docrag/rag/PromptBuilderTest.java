@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PromptBuilderTest {
 
     private final PromptBuilder builder = new PromptBuilder(
-            new LlmProperties("http://localhost:11434/v1", "", "bge-m3", 1024, "qwen2.5", 0.1, 6000));
+            new LlmProperties("http://localhost:11434/v1", "", "bge-m3", 1024, "qwen2.5", 0.1, 6000, ""));
 
     private static Merged chunk(String id, String content) {
         return new Merged(id, "doc-1", "manual", "manual.pdf", content, 0.02, null,
@@ -163,7 +163,7 @@ class PromptBuilderTest {
     @DisplayName("chunks beyond the context budget are dropped, not truncated mid-sentence")
     void respectsContextBudget() {
         PromptBuilder tight = new PromptBuilder(
-                new LlmProperties("http://localhost:11434/v1", "", "bge-m3", 1024, "qwen2.5", 0.1, 60));
+                new LlmProperties("http://localhost:11434/v1", "", "bge-m3", 1024, "qwen2.5", 0.1, 60, ""));
         List<Merged> chunks = List.of(chunk("c0", "a".repeat(200)), chunk("c1", "b".repeat(200)));
 
         String prompt = tight.userPrompt("q", chunks);

@@ -16,7 +16,7 @@ class TextChunkerTest {
 
     private final TextChunker chunker = new TextChunker(
             new RagProperties(CHUNK_SIZE, OVERLAP, 8, 30, 0.35, 60, true, true, false, 600,
-                    1.0, 1.0, 0));
+                    1.0, 1.0, 0, false));
 
     private static String sentence(String marker, int length) {
         StringBuilder sb = new StringBuilder(marker).append(' ');

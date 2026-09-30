@@ -13,6 +13,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param chatModel          model id used for answer generation
  * @param temperature        low values keep answers grounded in the retrieved context
  * @param maxContextChars    hard cap on context injected into the prompt, controls cost
+ * @param rewriteModel       model id for auxiliary query rewriting; blank falls back to
+ *                           chatModel. Rewriting is a short, formulaic task, so a cheaper
+ *                           and faster model (e.g. qwen-turbo) is usually the better buy.
  */
 @ConfigurationProperties(prefix = "llm")
 public record LlmProperties(
@@ -22,7 +25,8 @@ public record LlmProperties(
         int embeddingDimension,
         String chatModel,
         double temperature,
-        int maxContextChars
+        int maxContextChars,
+        String rewriteModel
 ) {
     public LlmProperties {
         if (baseUrl == null || baseUrl.isBlank()) {
@@ -30,6 +34,9 @@ public record LlmProperties(
         }
         if (apiKey == null) {
             apiKey = "";
+        }
+        if (rewriteModel == null) {
+            rewriteModel = "";
         }
         if (embeddingDimension <= 0) {
             embeddingDimension = 1536;

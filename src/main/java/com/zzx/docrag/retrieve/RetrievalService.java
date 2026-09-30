@@ -38,20 +38,24 @@ public class RetrievalService {
     private final EmbeddingClient embeddingClient;
     private final RagProperties ragProperties;
     private final ObjectProvider<Reranker> rerankerProvider;
+    private final QueryRewriter queryRewriter;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     public RetrievalService(ChunkGateway chunkGateway,
                             EmbeddingClient embeddingClient,
                             RagProperties ragProperties,
-                            ObjectProvider<Reranker> rerankerProvider) {
+                            ObjectProvider<Reranker> rerankerProvider,
+                            QueryRewriter queryRewriter) {
         this.chunkGateway = chunkGateway;
         this.embeddingClient = embeddingClient;
         this.ragProperties = ragProperties;
         this.rerankerProvider = rerankerProvider;
+        this.queryRewriter = queryRewriter;
     }
 
     /**
-     * @param query           question, already rewritten if rewriting is enabled
+     * @param query           question as asked by the user; rewritten internally when
+     *                        {@code rag.enable-rewrite=true}
      * @param topK            number of chunks to return
      * @return ranked chunks plus per-stage evidence
      */
@@ -59,10 +63,19 @@ public class RetrievalService {
         int candidateK = Math.max(ragProperties.candidateK(), topK);
         long started = System.currentTimeMillis();
 
+        // Rewriting runs BEFORE both retrievers: it is the only stage that can fix a recall
+        // miss caused by vocabulary gaps (colloquial question vs document terminology).
+        long rewriteStarted = System.currentTimeMillis();
+        String effectiveQuery = queryRewriter.rewrite(query);
+        long rewriteMillis = System.currentTimeMillis() - rewriteStarted;
+        if (!effectiveQuery.equals(query)) {
+            log.debug("Query rewritten: '{}' -> '{}' ({}ms)", query, effectiveQuery, rewriteMillis);
+        }
+
         CompletableFuture<Timed<List<Retrieved>>> lexicalFuture =
-                ragProperties.enableLexical() ? submitLexical(query, candidateK) : completed(Timed.<Retrieved>empty());
+                ragProperties.enableLexical() ? submitLexical(effectiveQuery, candidateK) : completed(Timed.<Retrieved>empty());
         CompletableFuture<Timed<List<Retrieved>>> vectorFuture =
-                ragProperties.enableVector() ? submitVector(query, candidateK) : completed(Timed.<Retrieved>empty());
+                ragProperties.enableVector() ? submitVector(effectiveQuery, candidateK) : completed(Timed.<Retrieved>empty());
 
         CompletableFuture.allOf(lexicalFuture, vectorFuture).join();
         Timed<List<Retrieved>> lexical = lexicalFuture.join();
@@ -94,12 +107,14 @@ public class RetrievalService {
             selected = take(fused, topK);
         } else {
             long rerankStarted = System.currentTimeMillis();
-            selected = reranker.rerank(query, fused, topK);
+            selected = reranker.rerank(effectiveQuery, fused, topK);
             rerankMillis = System.currentTimeMillis() - rerankStarted;
         }
 
         RetrievalResult result = new RetrievalResult(
                 selected,
+                effectiveQuery,
+                rewriteMillis,
                 lexical.value().size(),
                 vector.value().size(),
                 fused.size(),
@@ -110,7 +125,7 @@ public class RetrievalService {
                 rerankSkipped);
 
         log.debug("Retrieval query='{}' lexicalHits={} vectorHits={} fused={} kept={} total={}ms",
-                query, result.lexicalHits(), result.vectorHits(), result.fusedCount(),
+                effectiveQuery, result.lexicalHits(), result.vectorHits(), result.fusedCount(),
                 selected.size(), System.currentTimeMillis() - started);
         return result;
     }

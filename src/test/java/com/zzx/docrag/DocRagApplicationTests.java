@@ -91,11 +91,13 @@ class DocRagApplicationTests {
         assertThat(rag.enableLexical()).isTrue();
         assertThat(rag.enableVector()).isTrue();
         assertThat(rag.enableRerank()).isFalse();
+        assertThat(rag.enableRewrite()).isFalse();
 
         LlmProperties llm = context.getBean(LlmProperties.class);
         // Aliyun Bailian text-embedding-v4 default dimension; keep in sync with application.yml
         assertThat(llm.embeddingDimension()).isEqualTo(1024);
         assertThat(llm.maxContextChars()).isEqualTo(6000);
         assertThat(llm.baseUrl()).isNotBlank();
+        assertThat(llm.rewriteModel()).isEqualTo("qwen-turbo");
     }
 }
