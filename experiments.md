@@ -14,7 +14,7 @@
 | Embedding | 阿里云百炼 `text-embedding-v4`（1024 维） |
 | 生成模型 | 阿里云百炼 `qwen-plus`，temperature=0.1 |
 | 检索配置 | ES 8.15.3 单索引（BM25 + dense_vector script_score），chunk=500/overlap=80，candidateK=30，rrfK=60，minVectorScore=0.35，topK=8 |
-| 评测集 | `eval/my-eval.jsonl` v1.3，48 条（43 可答 + 5 拒答） |
+| 评测集 | `eval/my-eval.jsonl` v1.3，48 条（43 可答 + 5 拒答）。当前版本 v1.4（变更见实验 15），本表为实验 1-9 时的环境快照 |
 | 日期 | 2026-09-24 |
 
 ---

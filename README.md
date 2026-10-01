@@ -251,7 +251,7 @@ curl -X POST "http://localhost:8080/api/eval/run?label=full&topK=8&skipGeneratio
 
 ### 4.4 A/B 对比实验：已跑出的真实数据（2026-09-24）
 
-**同一套用例（`eval/my-eval.jsonl` v1.3，48 条）、同一份语料（7 文档 568 chunks）**，只改配置。完整过程与失败归因见 `experiments.md`，原始报告在 `eval/result-*.json`。
+**同一套用例（`eval/my-eval.jsonl` v1.3，48 条）、同一份语料（7 文档 568 chunks，corpus-v1）**，只改配置。完整过程与失败归因见 `experiments.md`，原始报告在 `eval/result-*.json`。（本节为第一轮历史基线；当前基线见下方 corpus-v2 + v1.4 段落。）
 
 检索层（skipGeneration=true，零生成成本）：
 
