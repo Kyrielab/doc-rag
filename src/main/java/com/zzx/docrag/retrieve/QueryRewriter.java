@@ -75,7 +75,7 @@ public class QueryRewriter {
             String model = llmProperties.rewriteModel().isBlank()
                     ? llmProperties.chatModel()
                     : llmProperties.rewriteModel();
-            String raw = llmClient.complete(model, SYSTEM_PROMPT, query);
+            String raw = llmClient.complete(model, SYSTEM_PROMPT, query).content();
             String cleaned = sanitize(raw);
             if (cleaned.isBlank() || cleaned.length() > MAX_REWRITTEN_CHARS) {
                 log.warn("Query rewrite produced unusable output ({} chars), keeping original query",

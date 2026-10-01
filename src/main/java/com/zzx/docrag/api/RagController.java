@@ -3,14 +3,17 @@ package com.zzx.docrag.api;
 import com.zzx.docrag.rag.QaAnswer;
 import com.zzx.docrag.rag.RagService;
 import jakarta.validation.Valid;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * Question answering.
+ * Question answering: blocking JSON and streaming SSE.
  */
 @RestController
 @RequestMapping("/api")
@@ -37,5 +40,21 @@ public class RagController {
     public QaAnswer quick(@RequestParam("q") String question,
                           @RequestParam(value = "topK", required = false) Integer topK) {
         return ragService.answer(question, topK);
+    }
+
+    /**
+     * Streaming answer over Server-Sent Events. GET (not POST) on purpose: the browser
+     * EventSource API only speaks GET, and the demo UI relies on it.
+     *
+     * <p>Event sequence: {@code meta} (retrieval stats) -> {@code token}* (incremental text)
+     * -> {@code done} (full QaAnswer JSON incl. citations, trace with ttftMillis), or
+     * {@code error}. 5-minute ceiling guards against abandoned emitters.
+     */
+    @GetMapping(value = "/answer/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream(@RequestParam("q") String question,
+                             @RequestParam(value = "topK", required = false) Integer topK) {
+        SseEmitter emitter = new SseEmitter(300_000L);
+        ragService.answerStreaming(question, topK, emitter);
+        return emitter;
     }
 }

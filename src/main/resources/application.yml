@@ -105,3 +105,16 @@ logging:
   level:
     root: INFO
     com.zzx.docrag: DEBUG
+
+# Observability (week 7): Prometheus scrape endpoint + metrics UI.
+# Custom meters: rag.answer (tags: cache, refused), rag.stage (tag: stage=
+# rewrite/lexical/vector/fusion/rerank/generate), rag.context.chars,
+# rag.ttft.millis, llm.tokens (tags: model, kind=prompt/completion).
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always

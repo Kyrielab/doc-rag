@@ -10,11 +10,17 @@ import com.zzx.docrag.retrieve.Merged;
 import com.zzx.docrag.retrieve.RetrievalResult;
 import com.zzx.docrag.retrieve.RetrievalService;
 import com.zzx.docrag.retrieve.RetrievalTrace;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -22,7 +28,11 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Orchestrates the answer path: cache -> retrieve -> fuse -> rerank -> prompt -> generate -> cite.
@@ -45,6 +55,8 @@ public class RagService {
     private final LlmProperties llmProperties;
     private final StringRedisTemplate redis;
     private final ObjectMapper mapper;
+    private final MeterRegistry metrics;
+    private final ExecutorService streamExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     public RagService(RetrievalService retrievalService,
                       PromptBuilder promptBuilder,
@@ -53,7 +65,8 @@ public class RagService {
                       RagProperties ragProperties,
                       LlmProperties llmProperties,
                       StringRedisTemplate redis,
-                      ObjectMapper mapper) {
+                      ObjectMapper mapper,
+                      MeterRegistry metrics) {
         this.retrievalService = retrievalService;
         this.promptBuilder = promptBuilder;
         this.llmClient = llmClient;
@@ -62,6 +75,7 @@ public class RagService {
         this.llmProperties = llmProperties;
         this.redis = redis;
         this.mapper = mapper;
+        this.metrics = metrics;
     }
 
     /**
@@ -90,6 +104,7 @@ public class RagService {
             Optional<CachedAnswer> cached = readCache(cacheKey);
             if (cached.isPresent()) {
                 QaAnswer fromCache = rebuildFromCache(cached.get(), question, started);
+                recordMetrics(true, fromCache.refused(), null, 0, 0, fromCache.trace().totalMillis());
                 log.debug("Cache hit for question='{}'", question);
                 return fromCache;
             }
@@ -107,7 +122,7 @@ public class RagService {
         } else {
             PromptBuilder.UserPrompt prompt = promptBuilder.userPrompt(question, chunks);
             promptContextChars = prompt.contextChars();
-            answerText = llmClient.complete(promptBuilder.systemPrompt(), prompt.text());
+            answerText = llmClient.complete(promptBuilder.systemPrompt(), prompt.text()).content();
         }
         long generateMillis = System.currentTimeMillis() - generateStarted;
 
@@ -128,6 +143,7 @@ public class RagService {
                 retrieval.rerankMillis(),
                 generateMillis,
                 promptContextChars,
+                0L,
                 System.currentTimeMillis() - started,
                 chunks,
                 Merged.idsOf(chunks),
@@ -135,10 +151,108 @@ public class RagService {
                 retrieval.rerankSkipped());
 
         QaAnswer answer = QaAnswer.of(answerText, citations, refs, refused, trace);
+        recordMetrics(false, refused, retrieval, generateMillis, promptContextChars, trace.totalMillis());
         if (allowCache) {
             writeCache(cacheKey, answer);
         }
         return answer;
+    }
+
+    /**
+     * Streaming answer path for the SSE endpoint. Deliberately cache-free: streaming exists
+     * to cut perceived latency (TTFT), and serving a cache hit would make the measurement
+     * meaningless. Event sequence: {@code meta} (retrieval stats) -> {@code token}* (incremental
+     * text) -> {@code done} (the full QaAnswer JSON, citations and trace included), or
+     * {@code error}. Runs on a virtual thread so slow subscribers never pin platform threads.
+     */
+    public void answerStreaming(String question, Integer topK, SseEmitter emitter) {
+        streamExecutor.execute(() -> {
+            long started = System.currentTimeMillis();
+            try {
+                int effectiveTopK = (topK == null || topK <= 0) ? ragProperties.defaultTopK() : topK;
+                RetrievalResult retrieval = retrievalService.retrieve(question, effectiveTopK);
+                List<Merged> chunks = retrieval.chunks();
+                sendEvent(emitter, "meta", Map.of(
+                        "rewrittenQuery", retrieval.rewrittenQuery(),
+                        "lexicalHits", retrieval.lexicalHits(),
+                        "vectorHits", retrieval.vectorHits(),
+                        "fusedCount", retrieval.fusedCount(),
+                        "retrievedChunkIds", Merged.idsOf(chunks)));
+
+                long generateStarted = System.currentTimeMillis();
+                String answerText;
+                int promptContextChars = 0;
+                long ttft = 0;
+                if (chunks.isEmpty()) {
+                    answerText = "INSUFFICIENT_CONTEXT";
+                } else {
+                    PromptBuilder.UserPrompt prompt = promptBuilder.userPrompt(question, chunks);
+                    promptContextChars = prompt.contextChars();
+                    AtomicLong firstTokenAt = new AtomicLong(0);
+                    answerText = llmClient.stream(promptBuilder.systemPrompt(), prompt.text(), null, token -> {
+                        firstTokenAt.compareAndSet(0, System.currentTimeMillis());
+                        try {
+                            emitter.send(SseEmitter.event().name("token").data(token));
+                        } catch (IOException e) {
+                            // Subscriber went away; abort the generation loop.
+                            throw new UncheckedIOException(e);
+                        }
+                    });
+                    ttft = firstTokenAt.get() > 0 ? firstTokenAt.get() - started : 0;
+                }
+                long generateMillis = System.currentTimeMillis() - generateStarted;
+
+                boolean refused = promptBuilder.isRefusal(answerText);
+                List<CitationRef> refs = promptBuilder.parseCitations(answerText, chunks);
+                List<Citation> citations = promptBuilder.distinctCitations(refs, chunks);
+                RetrievalTrace trace = new RetrievalTrace(
+                        question, retrieval.rewrittenQuery(), retrieval.rewriteMillis(),
+                        retrieval.lexicalHits(), retrieval.vectorHits(), retrieval.fusedCount(),
+                        retrieval.lexicalMillis(), retrieval.vectorMillis(), retrieval.fusionMillis(),
+                        retrieval.rerankMillis(), generateMillis, promptContextChars, ttft,
+                        System.currentTimeMillis() - started,
+                        chunks, Merged.idsOf(chunks), false, retrieval.rerankSkipped());
+                QaAnswer answer = QaAnswer.of(answerText, citations, refs, refused, trace);
+                recordMetrics(false, refused, retrieval, generateMillis, promptContextChars, trace.totalMillis());
+                metrics.summary("rag.ttft.millis").record(ttft);
+                sendEvent(emitter, "done", answer);
+                emitter.complete();
+            } catch (Exception e) {
+                log.warn("Streaming answer failed: {}", e.toString());
+                try {
+                    sendEvent(emitter, "error", Map.of("message", String.valueOf(e.getMessage())));
+                } catch (Exception ignored) {
+                    // subscriber already gone
+                }
+                emitter.completeWithError(e);
+            }
+        });
+    }
+
+    private void sendEvent(SseEmitter emitter, String name, Object payload) throws IOException {
+        emitter.send(SseEmitter.event().name(name)
+                .data(mapper.writeValueAsString(payload), MediaType.APPLICATION_JSON));
+    }
+
+    /** Answer + per-stage latency metrics; the Prometheus scrape endpoint exposes them. */
+    private void recordMetrics(boolean cacheHit, boolean refused, RetrievalResult retrieval,
+                               long generateMillis, int contextChars, long totalMillis) {
+        Timer.builder("rag.answer")
+                .tag("cache", String.valueOf(cacheHit))
+                .tag("refused", String.valueOf(refused))
+                .register(metrics)
+                .record(Duration.ofMillis(totalMillis));
+        if (retrieval != null) {
+            metrics.timer("rag.stage", "stage", "rewrite").record(Duration.ofMillis(retrieval.rewriteMillis()));
+            metrics.timer("rag.stage", "stage", "lexical").record(Duration.ofMillis(retrieval.lexicalMillis()));
+            metrics.timer("rag.stage", "stage", "vector").record(Duration.ofMillis(retrieval.vectorMillis()));
+            metrics.timer("rag.stage", "stage", "fusion").record(Duration.ofMillis(retrieval.fusionMillis()));
+            metrics.timer("rag.stage", "stage", "rerank").record(Duration.ofMillis(retrieval.rerankMillis()));
+            metrics.summary("rag.context.chars").record(contextChars);
+        }
+        if (generateMillis > 0) {
+            metrics.timer("rag.stage", "stage", "generate").record(Duration.ofMillis(generateMillis));
+        }
     }
 
     /**
@@ -218,7 +332,7 @@ public class RagService {
         List<Citation> citations = promptBuilder.distinctCitations(refs, chunks);
         RetrievalTrace trace = new RetrievalTrace(
                 question, question, 0, 0, 0, chunks.size(),
-                0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0,
                 System.currentTimeMillis() - started,
                 chunks, cached.chunkIds(), true, cached.rerankSkipped());
         return QaAnswer.of(cached.answer(), citations, refs, cached.refused(), trace);

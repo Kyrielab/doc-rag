@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>doc-rag 控制台</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #171a23; --border: #262b3a; --text: #e6e8ee;
+    --muted: #8b93a7; --accent: #7c6cf0; --ok: #34d399; --warn: #fbbf24; --err: #f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.6 "Microsoft YaHei", system-ui, sans-serif; }
+  header { padding: 14px 22px; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 12px; }
+  header h1 { font-size: 17px; color: var(--accent); }
+  header span { color: var(--muted); font-size: 12px; }
+  main { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; padding: 16px 22px; max-width: 1400px; margin: 0 auto; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .panel h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 12px; }
+  .askbar { display: flex; gap: 8px; margin-bottom: 12px; }
+  .askbar input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; color: var(--text); font-size: 14px; }
+  .askbar input:focus { outline: none; border-color: var(--accent); }
+  button { background: var(--accent); border: 0; border-radius: 8px; color: #fff; padding: 10px 18px; font-size: 14px; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: wait; }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; font-size: 12px; }
+  #answer { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px; min-height: 120px; white-space: pre-wrap; word-break: break-word; }
+  #answer .cursor { display: inline-block; width: 8px; height: 16px; background: var(--accent); animation: blink 1s infinite; vertical-align: text-bottom; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .trace { margin-top: 10px; color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  .trace b { color: var(--text); font-weight: 600; }
+  .cites { margin-top: 12px; display: grid; gap: 8px; }
+  .cite { border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 12px; font-size: 12.5px; }
+  .cite .src { color: var(--accent); font-weight: 600; margin-right: 8px; }
+  .cite .exc { color: var(--muted); display: block; margin-top: 3px; }
+  .refused { color: var(--warn); }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .badge { padding: 1px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+  .badge.DONE { background: rgba(52,211,153,.15); color: var(--ok); }
+  .badge.PENDING, .badge.PROCESSING { background: rgba(251,191,36,.15); color: var(--warn); }
+  .badge.FAILED { background: rgba(248,113,113,.15); color: var(--err); }
+  .upload { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  .upload input[type=file] { color: var(--muted); font-size: 12px; flex: 1; }
+  .muted { color: var(--muted); font-size: 12px; }
+  #status-line { margin-top: 10px; font-size: 12px; color: var(--muted); min-height: 18px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>doc-rag</h1>
+  <span>技术文档混合检索问答 · BM25 + 向量 + RRF · 引用溯源 · SSE 流式</span>
+</header>
+<main>
+  <section class="panel">
+    <h2>提问（流式）</h2>
+    <div class="askbar">
+      <input id="q" placeholder="例如：RDB 和 AOF 有什么区别？" autocomplete="off">
+      <button id="ask">提问</button>
+    </div>
+    <div id="answer"><span class="muted">答案将在这里流式输出，引用角标见下方来源卡片…</span></div>
+    <div class="trace" id="trace"></div>
+    <div class="cites" id="cites"></div>
+  </section>
+  <section class="panel">
+    <h2>文档管理</h2>
+    <div class="upload">
+      <input type="file" id="file" accept=".pdf,.docx,.md,.txt">
+      <button id="upload">上传灌库（异步）</button>
+    </div>
+    <table>
+      <thead><tr><th>文档</th><th>状态</th><th>chunks</th><th>尝试</th><th></th></tr></thead>
+      <tbody id="docs"></tbody>
+    </table>
+    <div id="status-line"></div>
+    <p class="muted" style="margin-top:10px">状态机：PENDING → PROCESSING → DONE / FAILED（重试 3 次后进死信队列）。每 5 秒自动刷新。</p>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let es = null;
+
+function ask() {
+  const q = $('q').value.trim();
+  if (!q) return;
+  if (es) es.close();
+  $('ask').disabled = true;
+  $('answer').innerHTML = '<span class="cursor"></span>';
+  $('trace').innerHTML = '';
+  $('cites').innerHTML = '';
+
+  es = new EventSource('/api/answer/stream?q=' + encodeURIComponent(q) + '&topK=8');
+  let text = '';
+  es.addEventListener('meta', e => {
+    const m = JSON.parse(e.data);
+    $('trace').innerHTML = '<span>词法命中 <b>' + m.lexicalHits + '</b></span><span>向量命中 <b>' + m.vectorHits + '</b></span><span>融合候选 <b>' + m.fusedCount + '</b></span>';
+  });
+  es.addEventListener('token', e => {
+    text += e.data;
+    $('answer').textContent = text;
+    $('answer').insertAdjacentHTML('beforeend', '<span class="cursor"></span>');
+  });
+  es.addEventListener('done', e => {
+    es.close(); $('ask').disabled = false;
+    const a = JSON.parse(e.data);
+    $('answer').textContent = a.answer;
+    if (a.refused) $('answer').innerHTML = '<span class="refused">⚠ 模型判定语料不足以回答（拒答）。' + '</span>';
+    const t = a.trace;
+    $('trace').innerHTML =
+      '<span>首字 <b>' + t.ttftMillis + 'ms</b></span>' +
+      '<span>检索 <b>' + (t.rewriteMillis + Math.max(t.lexicalMillis, t.vectorMillis) + t.fusionMillis + t.rerankMillis) + 'ms</b></span>' +
+      '<span>生成 <b>' + t.generateMillis + 'ms</b></span>' +
+      '<span>总计 <b>' + t.totalMillis + 'ms</b></span>' +
+      '<span>上下文 <b>' + t.promptContextChars + ' 字符</b></span>' +
+      '<span>引用准确率 <b>' + (a.citationAccuracy * 100).toFixed(0) + '%</b></span>';
+    $('cites').innerHTML = (a.citations || []).map(c =>
+      '<div class="cite"><span class="src">[' + String.fromCharCode(65 + c.rank) + ']</span><b>' + c.title + '</b><span class="muted"> · ' + c.chunkId + '</span><span class="exc">' + c.excerpt + '</span></div>'
+    ).join('');
+  });
+  es.addEventListener('error', e => {
+    es.close(); $('ask').disabled = false;
+    if (!text) $('answer').innerHTML = '<span class="refused">流式请求失败（服务未启动或连接中断）</span>';
+  });
+}
+
+async function refreshDocs() {
+  try {
+    const docs = await (await fetch('/api/documents')).json();
+    $('docs').innerHTML = docs.map(d =>
+      '<tr><td>' + d.title + '</td>' +
+      '<td><span class="badge ' + d.status + '">' + d.status + '</span></td>' +
+      '<td>' + (d.chunkCount || '-') + '</td>' +
+      '<td>' + d.attempts + '</td>' +
+      '<td><button class="ghost" onclick="delDoc(\'' + d.docId + '\')">删除</button></td></tr>'
+    ).join('') || '<tr><td colspan="5" class="muted">暂无文档，先上传一份</td></tr>';
+  } catch (e) { $('status-line').textContent = '文档列表获取失败：服务未启动？'; }
+}
+
+async function delDoc(docId) {
+  await fetch('/api/documents/' + docId, { method: 'DELETE' });
+  refreshDocs();
+}
+
+$('ask').onclick = ask;
+$('q').addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
+$('upload').onclick = async () => {
+  const f = $('file').files[0];
+  if (!f) { $('status-line').textContent = '先选择文件'; return; }
+  const fd = new FormData();
+  fd.append('file', f);
+  $('status-line').textContent = '上传中…';
+  const r = await fetch('/api/documents/upload', { method: 'POST', body: fd });
+  const j = await r.json();
+  $('status-line').textContent = '已受理（' + j.status + '），docId=' + j.docId + '，后台向量化中…';
+  refreshDocs();
+};
+
+refreshDocs();
+setInterval(refreshDocs, 5000);
+</script>
+</body>
+</html>

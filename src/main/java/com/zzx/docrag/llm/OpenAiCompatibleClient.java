@@ -40,10 +40,13 @@ public class OpenAiCompatibleClient implements EmbeddingClient, LlmClient {
     private final ObjectMapper mapper;
     private final RestClient restClient;
     private final HttpClient httpClient;
+    private final io.micrometer.core.instrument.MeterRegistry meterRegistry;
 
-    public OpenAiCompatibleClient(LlmProperties properties, ObjectMapper mapper) {
+    public OpenAiCompatibleClient(LlmProperties properties, ObjectMapper mapper,
+                                  io.micrometer.core.instrument.MeterRegistry meterRegistry) {
         this.properties = properties;
         this.mapper = mapper;
+        this.meterRegistry = meterRegistry;
         this.restClient = buildRestClient(properties);
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
@@ -129,12 +132,12 @@ public class OpenAiCompatibleClient implements EmbeddingClient, LlmClient {
     // ------------------------------------------------------------------ completion
 
     @Override
-    public String complete(String systemPrompt, String userPrompt) {
+    public Completion complete(String systemPrompt, String userPrompt) {
         return complete(properties.chatModel(), systemPrompt, userPrompt);
     }
 
     @Override
-    public String complete(String model, String systemPrompt, String userPrompt) {
+    public Completion complete(String model, String systemPrompt, String userPrompt) {
         ObjectNode body = buildChatBody(model, systemPrompt, userPrompt, false);
         String raw = restClient.post()
                 .uri("/chat/completions")
@@ -147,8 +150,10 @@ public class OpenAiCompatibleClient implements EmbeddingClient, LlmClient {
         if (content.isEmpty()) {
             throw new IllegalStateException("Chat completion returned empty content: " + abbreviate(raw));
         }
-        logUsage(root);
-        return content;
+        int promptTokens = root.path("usage").path("prompt_tokens").asInt(0);
+        int completionTokens = root.path("usage").path("completion_tokens").asInt(0);
+        countUsage(model, promptTokens, completionTokens);
+        return new Completion(content, promptTokens, completionTokens);
     }
 
     @Override
@@ -199,6 +204,13 @@ public class OpenAiCompatibleClient implements EmbeddingClient, LlmClient {
                             onToken.accept(token);
                         }
                     }
+                    // The usage frame (stream_options.include_usage) arrives with empty choices.
+                    JsonNode usage = chunk.path("usage");
+                    if (!usage.isMissingNode() && !usage.isNull()) {
+                        countUsage(properties.chatModel(),
+                                usage.path("prompt_tokens").asInt(0),
+                                usage.path("completion_tokens").asInt(0));
+                    }
                 }
             }
         } catch (InterruptedException e) {
@@ -227,18 +239,31 @@ public class OpenAiCompatibleClient implements EmbeddingClient, LlmClient {
         body.put("model", model);
         body.put("temperature", properties.temperature());
         body.put("stream", stream);
+        if (stream) {
+            // Ask for the usage frame on streaming calls too, otherwise streamed answers
+            // would be invisible to token accounting.
+            body.putObject("stream_options").put("include_usage", true);
+        }
         body.set("messages", messages);
         return body;
     }
 
-    private void logUsage(JsonNode root) {
-        JsonNode usage = root.path("usage");
-        if (!usage.isMissingNode()) {
-            log.debug("token usage prompt={} completion={} total={}",
-                    usage.path("prompt_tokens").asInt(),
-                    usage.path("completion_tokens").asInt(),
-                    usage.path("total_tokens").asInt());
+    /**
+     * Token accounting lives in the client because only the client sees provider usage
+     * frames - both on non-streaming responses and (via stream_options) on the final
+     * streaming frame. One place, no drift.
+     */
+    private void countUsage(String model, int promptTokens, int completionTokens) {
+        if (promptTokens <= 0 && completionTokens <= 0) {
+            return;
         }
+        log.debug("token usage model={} prompt={} completion={}", model, promptTokens, completionTokens);
+        io.micrometer.core.instrument.Counter.builder("llm.tokens")
+                .tag("model", model).tag("kind", "prompt")
+                .register(meterRegistry).increment(promptTokens);
+        io.micrometer.core.instrument.Counter.builder("llm.tokens")
+                .tag("model", model).tag("kind", "completion")
+                .register(meterRegistry).increment(completionTokens);
     }
 
     /** Extracts prompt/completion token counts; used by the cost accounting endpoint. */

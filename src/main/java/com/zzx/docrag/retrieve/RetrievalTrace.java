@@ -20,6 +20,7 @@ import java.util.List;
  * @param generateMillis    LLM latency
  * @param promptContextChars characters of retrieved content embedded in the prompt;
  *                          the cost metric for context compression
+ * @param ttftMillis        time-to-first-token on the streaming path, 0 on non-streaming
  * @param totalMillis       end-to-end latency
  * @param topChunks         final chunks handed to the LLM
  * @param retrievedChunkIds ids of those chunks, used by the evaluation harness
@@ -39,6 +40,7 @@ public record RetrievalTrace(
         long rerankMillis,
         long generateMillis,
         int promptContextChars,
+        long ttftMillis,
         long totalMillis,
         List<Merged> topChunks,
         List<String> retrievedChunkIds,

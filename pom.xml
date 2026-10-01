@@ -55,6 +55,16 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-validation</artifactId>
     </dependency>
+    <!-- Observability (week 7): /actuator/prometheus exposes rag.answer, rag.stage,
+         rag.context.chars, rag.ttft.millis and llm.tokens (provider-reported usage). -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
 
     <!-- Elasticsearch: used directly over its REST API.
          We deliberately avoid spring-boot-starter-data-elasticsearch so that

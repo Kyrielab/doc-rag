@@ -8,13 +8,13 @@ import java.util.List;
 public interface LlmClient {
 
     /**
-     * Non-streaming completion.
+     * Non-streaming completion against the configured chat model.
      *
      * @param systemPrompt control instructions
      * @param userPrompt   the grounded question plus retrieved context
-     * @return generated answer text
+     * @return generated text with provider-reported token usage
      */
-    String complete(String systemPrompt, String userPrompt);
+    Completion complete(String systemPrompt, String userPrompt);
 
     /**
      * Non-streaming completion against an explicit model. Auxiliary tasks such as query
@@ -24,9 +24,9 @@ public interface LlmClient {
      * @param model        model id to call
      * @param systemPrompt control instructions
      * @param userPrompt   task input
-     * @return generated text
+     * @return generated text with provider-reported token usage
      */
-    String complete(String model, String systemPrompt, String userPrompt);
+    Completion complete(String model, String systemPrompt, String userPrompt);
 
     /**
      * Streaming completion. Tokens are pushed to {@code onToken} as they arrive,

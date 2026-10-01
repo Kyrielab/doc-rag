@@ -192,6 +192,10 @@ curl -X POST http://localhost:8080/api/answer \
 }
 ```
 
+### 3.7 演示界面
+
+浏览器打开 `http://localhost:8080/`——内置单页控制台（原生 JS，无需前端构建）：左侧流式问答（SSE 逐字渲染 + 引用来源卡片 + trace 延迟明细），右侧文档管理（异步上传、状态徽章自动轮询、删除）。
+
 ---
 
 ## 4. 评测：这个项目的核心资产
@@ -280,6 +284,8 @@ curl -X POST "http://localhost:8080/api/eval/run?label=full&topK=8&skipGeneratio
 
 关键发现：**frontmatter 剥离（一次解析改动）让纯关键词 +6.9pp，收益超过此前全部算法手段（重排/改写/调参合计零收益）——语料卫生优先于算法**。代价是 v2 上混合对纯关键词的实测优势归零（评测集天花板，混合价值转为词面失配保险）。压缩的成本-质量权衡已量化，默认关闭。详见 `experiments.md` 实验 10/11。
 
+**当前基线（评测集 v1.4 + corpus-v2，实验 15）**：ContentRecall@8 = **0.977**（42/43，唯一漏检为已归因的 RRF 共识偏差用例 network-01，保留作融合策略改进的靶子）、SrcRecall@8 = **1.000**、引用准确率 0.998、关键点覆盖率 **0.906**、拒答准确率 **1.000**。第 7 周补充：SSE 流式端点 TTFT **1577ms**（非流式等全量 12.3s，感知延迟 -87%）；4 并发压测 48/48 零错误（吞吐 0.67 req/s，受生成端 LLM 延迟限制）；异步入库受理 mean 38ms；死信链路演练通过（毒消息 → 重试 3 次 → FAILED → DLQ messages=1）；Prometheus 指标全量在采（含 llm.tokens 成本账本）。
+
 四个最有含金量的结论：
 1. **混合比纯关键词 ContentRecall@8 高 6.9pp**，救回的全是口语化改写题（BM25 词面失配场景）
 2. **混合与纯向量打平但失败集不同**：混合救回向量漏的精确术语题（para-01），却因 RRF 共识偏差丢了向量能命中的 network-01（正确 chunk 只在单路排名靠前，被"两路都中游"的平庸 chunk 挤出 top-8）
@@ -299,10 +305,12 @@ curl -X POST "http://localhost:8080/api/eval/run?label=full&topK=8&skipGeneratio
 | GET | `/api/documents` | 文档状态机列表（PENDING/PROCESSING/DONE/FAILED + chunkCount + attempts + error） |
 | DELETE | `/api/documents/{docId}` | 删除文档：ES chunks + 状态记录 |
 | POST | `/api/answer` | 问答（返回答案 + 引用 + trace） |
+| GET | `/api/answer/stream?q=` | **SSE 流式问答**（meta → token* → done 事件序列，trace 含 ttftMillis；演示界面用的就是它） |
 | POST | `/api/answer/quick?q=` | 便捷问答（浏览器/压测用） |
 | POST | `/api/eval/run` | 跑评测，返回聚合报告 |
 | POST | `/api/eval/markdown` | 评测结果渲染为 markdown 表格行 |
 | GET | `/api/admin/status` | 依赖连通性与生效配置 |
+| GET | `/actuator/prometheus` | Prometheus 指标（rag.answer / rag.stage / rag.ttft.millis / rag.context.chars / llm.tokens） |
 
 ---
 
@@ -312,7 +320,7 @@ curl -X POST "http://localhost:8080/api/eval/run?label=full&topK=8&skipGeneratio
 mvn test
 ```
 
-**当前状态：46 个测试全部通过**（JDK 21.0.12 / Maven 3.9.16 / Spring Boot 3.5.6 实测）。
+**当前状态：50 个测试全部通过**（JDK 21.0.12 / Maven 3.9.16 / Spring Boot 3.5.6 实测）。
 
 | 测试类 | 覆盖内容 |
 |---|---|
@@ -323,6 +331,7 @@ mvn test
 | `QueryRewriterTest` | 禁用直通、供应商故障 fail-open、改写模型选择与回退、超长输出拒用、清洗（首行/剥引号） |
 | `ContextCompressorTest` | 禁用/短文直通、保留相关句丢弃填充句、CJK 二元组打分、保持原文顺序、无相关句退化为前缀截断 |
 | `IngestionFrontmatterTest` | YAML 块剥离、无围栏不动、围栏不闭合不吞正文、CRLF 兼容 |
+| `WebLayerSerializationTest` | **Web 层契约（MockMvc 走真实 MVC+Jackson 栈）**：Instant 序列化为 ISO-8601（钉死 bug #10）、inlineContent 不泄漏、空白请求 400 |
 
 ---
 
@@ -330,20 +339,20 @@ mvn test
 
 **当前限制**
 1. PDF 解析依赖文本层，扫描件需要先 OCR；表格和标题层级会丢失
-2. 查询改写与上下文压缩均已实现并 A/B 实测，**默认关闭**（当前评测集上改写零收益 +402ms；压缩省 75% 上下文但覆盖率 -4.1pp）——开关都在配置里，数据见实验 9/11
-3. 异步入库的重试/死信路径拓扑就绪但**未演练**（突发测试零失败，attempts 全 1）
-4. 关键点覆盖率是弱正确性指标
+2. 查询改写与上下文压缩均已实现并 A/B 实测，**默认关闭**（当前评测集上改写零收益 +402ms；压缩省 75% 上下文但覆盖率 -4.1pp）——开关在配置里，数据见实验 9/11
+3. 多轮对话的指代消解未实现（查询改写机制已在，缺会话上下文管理）
+4. 关键点覆盖率是弱正确性指标；生产级需 LLM 裁判 + 人工抽检
 5. 无鉴权与多租户隔离
-6. 无 Web 层集成测试——bug #10（Instant 序列化 500）证明上下文装配测试抓不住序列化问题
+6. network-01（RRF 共识偏差）是唯一遗留的已知系统缺陷——保留在评测集里作为融合策略改进的靶子
 
-**下一步优先级（按数据支撑的紧迫度排序）**
-- [ ] **评测集 v1.4 治理**：para-03 加领域限定、network-01 放宽多金标、network-05 复审（归因已完成，纯标注工作；v2 语料上它决定还能不能测出差异）
-- [ ] **死信演练**：投喂毒消息验证 重试 3 次 → FAILED 落库 → DLQ 可达 的完整链路
-- [ ] **Web 层集成测试（MockMvc）**：钉住端点契约与序列化（bug #10 的教训）
-- [ ] **IK 中文分词器**：词级分词替换单字切分（compose profile 已备好；注意 v2 语料下词法已 0.953，预期收益收窄）
-- [ ] **流式输出（SSE）端点**：客户端 SSE 帧解析已实现，补 HTTP 端点把首字延迟（TTFT）从秒级降到亚秒级
-- [ ] **可观测性**：接入 Micrometer + Prometheus，把检索/生成各阶段耗时与 token 消耗做成看板
+**下一步优先级**
+- [ ] **network-01 融合策略改进**：单路高分保护或融合前轻量重排（唯一遗留系统缺陷，靶子明确）
+- [ ] **IK 中文分词器**：词级分词替换单字切分（compose profile 已备好；v2 语料下词法已 0.953，预期收益收窄）
+- [ ] **Grafana 看板**：Prometheus 端点已就绪，差可视化
+- [ ] **多轮对话**：会话管理 + 指代消解（复用查询改写机制）
 - [ ] **语义缓存 / 限流配额**：向量近邻缓存提高命中率；按调用方做 token 配额
+
+**已完成**（数据见 experiments.md 实验 12-16）：入库异步化 + 死信演练、SSE 流式端点（TTFT 1577ms）、Micrometer/Prometheus 指标与 token 成本账本、评测集 v1.4 治理（新基线 0.977）、Web 层 MockMvc 测试、演示 UI。
 
 ---
 
@@ -354,27 +363,31 @@ doc-rag/
 ├── pom.xml
 ├── docker-compose.yml
 ├── Dockerfile.es-zh              # 带 IK 分词器的 ES 镜像
-├── experiments.md                # 完整实验记录（9 组实验 + 失败归因 + 队列）
+├── experiments.md                # 完整实验记录（16 组实验 + 失败归因 + 队列）
+├── blog/                         # 技术博客（数据复盘长文）
 ├── eval/
 │   ├── sample-eval.jsonl         # 用例格式示例
-│   ├── my-eval.jsonl             # 正式评测集 v1.3（48 条，chunk 级金标）
+│   ├── my-eval.jsonl             # 正式评测集 v1.4（48 条，chunk 级金标）
 │   └── result-*.json             # 各配置原始评测报告（数字出处）
-├── scripts/                      # start-dev / smoke-test / run-ab / run-week4 / run-rerank / run-rewrite / verify-terms
+├── scripts/                      # start-dev / smoke-test / run-ab / run-week4 / run-week7 /
+│                                 # run-week56 / run-rerank / run-rewrite / verify-terms
 └── src/
-    ├── main/java/com/zzx/docrag/
-    │   ├── api/                  # REST 层：文档、问答、评测、诊断
-    │   ├── config/               # 配置绑定、ES 客户端、索引初始化
-    │   ├── es/                   # ES 网关：索引、BM25、向量检索、mget
-    │   ├── eval/                 # 评测用例、指标、报告
-    │   ├── ingest/               # 解析 → 切分 → 向量化 → 索引
-    │   ├── llm/                  # OpenAI 兼容的 embedding + chat 客户端
-    │   ├── rag/                  # 编排、提示构造、引用解析、缓存
-    │   └── retrieve/             # 混合检索、RRF、重排
-    └── test/java/com/zzx/docrag/ # 纯逻辑单元测试
+    ├── main/
+    │   ├── java/com/zzx/docrag/
+    │   │   ├── api/              # REST 层：文档、问答（含 SSE 流式）、评测、诊断
+    │   │   ├── config/           # 配置绑定、ES 客户端、索引初始化
+    │   │   ├── es/               # ES 网关：索引、BM25、向量检索、mget
+    │   │   ├── eval/             # 评测用例、指标、报告
+    │   │   ├── ingest/           # 解析→切分→向量化→索引 + 异步状态机（PG+RabbitMQ+DLQ）
+    │   │   ├── llm/              # OpenAI 兼容客户端（embedding/chat/SSE + token 计量）
+    │   │   ├── rag/              # 编排、提示构造、引用解析、上下文压缩、缓存
+    │   │   └── retrieve/         # 混合检索、RRF、重排（Jina/DashScope）、查询改写
+    │   └── resources/static/     # 演示 UI（单页控制台）
+    └── test/java/com/zzx/docrag/ # 50 个测试：纯逻辑单测 + 容器装配契约 + Web 层 MockMvc
 ```
 
 ---
 
 ## 9. 许可
 
-个人学习项目，可自由参考。
+MIT（见 [LICENSE](LICENSE)）。语料来源与许可注意见 `corpus/README.md`。

@@ -2,6 +2,7 @@ package com.zzx.docrag.retrieve;
 
 import com.zzx.docrag.config.LlmProperties;
 import com.zzx.docrag.config.RagProperties;
+import com.zzx.docrag.llm.Completion;
 import com.zzx.docrag.llm.LlmClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -54,7 +55,7 @@ class QueryRewriterTest {
     @DisplayName("the configured rewrite model is used, not the chat model")
     void usesRewriteModel() {
         LlmClient client = mock(LlmClient.class);
-        when(client.complete(anyString(), anyString(), anyString())).thenReturn("崩溃恢复如何保证数据不丢失");
+        when(client.complete(anyString(), anyString(), anyString())).thenReturn(Completion.of("崩溃恢复如何保证数据不丢失"));
         QueryRewriter rewriter = new QueryRewriter(client, llm("qwen-turbo"), props(true));
 
         rewriter.rewrite("断电了数据怎么办");
@@ -67,7 +68,7 @@ class QueryRewriterTest {
     @DisplayName("blank rewrite-model falls back to the chat model")
     void blankRewriteModelFallsBackToChatModel() {
         LlmClient client = mock(LlmClient.class);
-        when(client.complete(anyString(), anyString(), anyString())).thenReturn("改写后的问题");
+        when(client.complete(anyString(), anyString(), anyString())).thenReturn(Completion.of("改写后的问题"));
         QueryRewriter rewriter = new QueryRewriter(client, llm(""), props(true));
 
         rewriter.rewrite("原问题");
@@ -80,7 +81,7 @@ class QueryRewriterTest {
     @DisplayName("an overlong model output is rejected instead of used as a query")
     void rejectsOverlongOutput() {
         LlmClient client = mock(LlmClient.class);
-        when(client.complete(anyString(), anyString(), anyString())).thenReturn("长".repeat(201));
+        when(client.complete(anyString(), anyString(), anyString())).thenReturn(Completion.of("长".repeat(201)));
         QueryRewriter rewriter = new QueryRewriter(client, llm("qwen-turbo"), props(true));
 
         assertThat(rewriter.rewrite("原问题")).isEqualTo("原问题");
