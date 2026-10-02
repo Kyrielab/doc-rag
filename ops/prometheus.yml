@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # The app runs on the Docker host; host.docker.internal is mapped via
+  # extra_hosts: host-gateway in docker-compose.yml.
+  - job_name: doc-rag
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8080']

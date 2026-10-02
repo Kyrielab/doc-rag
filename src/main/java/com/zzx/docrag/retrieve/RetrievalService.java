@@ -111,6 +111,11 @@ public class RetrievalService {
             rerankMillis = System.currentTimeMillis() - rerankStarted;
         }
 
+        // Single-path protection runs LAST (after rerank): it is a seat guarantee for each
+        // retriever's top-N, not a re-scoring. Off by default; A/B dimension (experiment queue #15).
+        selected = ReciprocalRankFusion.protectSelection(
+                selected, fused, lexical.value(), vector.value(), ragProperties.fusionProtectTopN());
+
         RetrievalResult result = new RetrievalResult(
                 selected,
                 effectiveQuery,

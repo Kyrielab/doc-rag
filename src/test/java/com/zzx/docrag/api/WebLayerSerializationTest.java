@@ -3,6 +3,7 @@ package com.zzx.docrag.api;
 import com.zzx.docrag.ingest.DocumentRecord;
 import com.zzx.docrag.ingest.DocumentService;
 import com.zzx.docrag.rag.RagService;
+import com.zzx.docrag.retrieve.RetrievalResult;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -77,6 +78,18 @@ class WebLayerSerializationTest {
         mockMvc.perform(get("/api/documents"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(not(containsString("SECRET-PAYLOAD-BODY"))));
+    }
+
+    @Test
+    @DisplayName("the retrieval-only search endpoint is wired (pins the experiment-19 404)")
+    void searchEndpointIsWired() throws Exception {
+        when(ragService.retrieveOnly("q", 3))
+                .thenReturn(new RetrievalResult(List.of(), "q", 0, 0, 0, 0, 1, 2, 0, 0, ""));
+
+        mockMvc.perform(get("/api/search").param("q", "q").param("topK", "3"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rewrittenQuery").value("q"))
+                .andExpect(jsonPath("$.lexicalMillis").value(1));
     }
 
     @Test

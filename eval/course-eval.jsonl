@@ -1,0 +1,56 @@
+# doc-rag 课程语料评测集 v1.5（46 条 = 40 可答 + 6 拒答）
+# 语料：corpus-v3 = 190 篇南大软件学院课程笔记（学长博客，本地使用）+ JavaGuide 7 篇（保留），~4600 chunks
+# 题目来源：同学真实提问 46 条（课程资料/同学真实提问-46条.md，学生语气）
+# 金标方法：两轮语料挖矿，expectedContent 全部经"跨 198 文件唯一性/相关性"核验：
+#   - 单文件独享短语优先（段式存储管理/页面淘汰/虚拟存储器/管程/适配器模式/持续交付/回表/MVCC/
+#     ConcurrentHashMap/标准输入/2MSL/访管指令/快表/延迟写/WAL/文件锁/工作集/LL(1)/LR分析…）
+#   - 跨文件但全部真实相关的短语保留（三次握手/B+树/微服务/可串行化…），expectedSources 双源标注
+#   - D 组多跳题金标 = 两文档各一短语，需两篇都进 top-8 才满分
+#   - F 组拒答已复核：F5 书单在 OS 讲义零命中；F1/F2 考试题料在 corpus-course-exam 未灌入
+# 注意：keyPoints 只收"正确答案必然包含"的词；含少量题面回显词（弱指标惯例）
+{"id":"real-a1","question":"页式存储管理和段式存储管理的核心区别是什么，为什么现代系统主要用页式？","expectedSources":["Lecture3-存储管理"],"expectedContent":["段式存储管理"],"keyPoints":["页式"],"shouldRefuse":false}
+{"id":"real-a2","question":"OPT、FIFO、LRU 三种页面置换算法各自的特点是什么，为什么 OPT 实际不可实现？","expectedSources":["Lecture3-存储管理"],"expectedContent":["页面淘汰"],"keyPoints":["LRU"],"shouldRefuse":false}
+{"id":"real-a3","question":"死锁产生的四个必要条件是什么，实际系统里最常被破坏的是哪一个？","expectedSources":["Lecture6-并发程序设计"],"expectedContent":["循环等待"],"keyPoints":["互斥"],"shouldRefuse":false}
+{"id":"real-a4","question":"银行家算法属于死锁的预防、避免还是检测？为什么它实际很少被采用？","expectedSources":["Lecture6-并发程序设计"],"expectedContent":["银行家算法"],"keyPoints":["避免"],"shouldRefuse":false}
+{"id":"real-a5","question":"TCP 三次握手的每一步分别在做什么，为什么不能简化成两次？","expectedSources":["lecture05-运输层"],"expectedContent":["三次握手"],"keyPoints":["确认"],"shouldRefuse":false}
+{"id":"real-a6","question":"TCP 四次挥手中 TIME_WAIT 状态为什么要存在，等 2MSL 的意义是什么？","expectedSources":["lecture05-运输层"],"expectedContent":["2MSL"],"keyPoints":["TIME_WAIT"],"shouldRefuse":false}
+{"id":"real-a7","question":"数据库索引为什么选 B+ 树，相比 B 树和红黑树的优势分别在哪？","expectedSources":["Database-Development"],"expectedContent":["B+树"],"keyPoints":["范围"],"shouldRefuse":false}
+{"id":"real-a8","question":"事务的四个隔离级别分别解决了哪些并发异常——脏读、不可重复读、幻读？","expectedSources":["MySQL核心问题"],"expectedContent":["脏读","幻读"],"keyPoints":["隔离级别"],"shouldRefuse":false}
+{"id":"real-a9","question":"时间片轮转和优先级调度各自的优缺点是什么，怎么防止低优先级进程饿死？","expectedSources":["Lecture2-处理器管理"],"expectedContent":["时间片轮转"],"keyPoints":["优先级"],"shouldRefuse":false}
+{"id":"real-a10","question":"编译原理里 LL 分析和 LR 分析的区别是什么，为什么实际编译器更多用 LR？","expectedSources":["Compilation-Principle"],"expectedContent":["LL(1)","LR分析"],"keyPoints":["文法"],"shouldRefuse":false}
+{"id":"real-b1","question":"逻辑地址和物理地址到底有什么区别，我写程序时用的是哪一个？","expectedSources":["Lecture3-存储管理"],"expectedContent":["逻辑地址"],"keyPoints":["物理地址"],"shouldRefuse":false}
+{"id":"real-b2","question":"TLB 是什么，它和 cache 有什么区别，为什么说 TLB 命中率会影响性能？","expectedSources":["Lecture3-存储管理","2019-COA19"],"expectedContent":["快表"],"keyPoints":["TLB"],"shouldRefuse":false}
+{"id":"real-b3","question":"缺页中断和普通中断有什么区别，它到底算中断还是异常？","expectedSources":["Lecture3-存储管理"],"expectedContent":["缺页中断"],"keyPoints":["异常"],"shouldRefuse":false}
+{"id":"real-b4","question":"系统调用为什么比普通函数调用开销大？多出来的开销花在哪了？","expectedSources":["Lecture1-操作系统概论"],"expectedContent":["访管指令"],"keyPoints":["系统调用"],"shouldRefuse":false}
+{"id":"real-b5","question":"虚拟内存和 cache 是不是一回事，既然都是缓存为什么两个都要有？","expectedSources":["Lecture3-存储管理","2019-COA19"],"expectedContent":["虚拟存储器","局部性"],"keyPoints":["缓存"],"shouldRefuse":false}
+{"id":"real-b6","question":"设计模式里 Adapter 和 Composite 我总分不清，能各举一个例子讲吗？","expectedSources":["Software-System-Design"],"expectedContent":["适配器模式"],"keyPoints":["组合"],"shouldRefuse":false}
+{"id":"real-b7","question":"进程和线程的区别是什么，为什么线程切换比进程切换便宜？","expectedSources":["Lecture2-处理器管理"],"expectedContent":["轻量级进程"],"keyPoints":["调度"],"shouldRefuse":false}
+{"id":"real-b8","question":"管程和信号量有什么区别，为什么说管程更不容易写错？","expectedSources":["Lecture6-并发程序设计"],"expectedContent":["管程"],"keyPoints":["信号量"],"shouldRefuse":false}
+{"id":"real-c1","question":"我这条 SQL 执行很慢，怎么判断它有没有走索引，该看什么？","expectedSources":["Database-Development","MySQL核心问题"],"expectedContent":["执行计划"],"keyPoints":["索引"],"shouldRefuse":false}
+{"id":"real-c2","question":"什么是回表，什么情况下可以避免回表？","expectedSources":["MySQL核心问题"],"expectedContent":["回表"],"keyPoints":["索引"],"shouldRefuse":false}
+{"id":"real-c3","question":"做课设设计表结构时，反范式到底什么时候该用，会不会有坑？","expectedSources":["Database-Development"],"expectedContent":["反范式"],"keyPoints":["冗余"],"shouldRefuse":false}
+{"id":"real-c4","question":"为什么高并发下数据库会变慢，排队是怎么形成的？","expectedSources":["Fundamentals-of-Data-Management","Database-Development"],"expectedContent":["可串行化"],"keyPoints":["锁"],"shouldRefuse":false}
+{"id":"real-c5","question":"Linux 里 fork 之后父子进程谁先执行，能不能人为控制？","expectedSources":["Lecture2-处理器管理","Linux-Programming"],"expectedContent":["父子进程"],"keyPoints":["fork"],"shouldRefuse":false}
+{"id":"real-c6","question":"shell 里的管道是怎么实现的，它和重定向有什么区别？","expectedSources":["Linux-Programming","Linux-system-basics"],"expectedContent":["标准输入"],"keyPoints":["管道"],"shouldRefuse":false}
+{"id":"real-c7","question":"微服务架构和我们平时写的单体应用有什么区别，什么情况下该拆？","expectedSources":["Software-System-Design","Devops-introduction"],"expectedContent":["微服务"],"keyPoints":["单体"],"shouldRefuse":false}
+{"id":"real-c8","question":"CI 和 CD 分别指什么，持续交付和持续部署是一回事吗？","expectedSources":["Devops-introduction"],"expectedContent":["持续交付"],"keyPoints":["持续集成"],"shouldRefuse":false}
+{"id":"real-d1","question":"操作系统的缺页处理和计组里的 TLB、cache 是怎么配合工作的？","expectedSources":["Lecture3-存储管理","2019-COA19"],"expectedContent":["缺页中断","快表"],"keyPoints":["TLB"],"shouldRefuse":false}
+{"id":"real-d2","question":"操作系统文件管理的写回策略，和数据库的 WAL 日志在设计思路上有什么共通点？","expectedSources":["Lecture4-设备管理","Designing-Data-Intensive"],"expectedContent":["延迟写","WAL"],"keyPoints":["日志"],"shouldRefuse":false}
+{"id":"real-d3","question":"操作系统的写时复制（COW）和数据库的 MVCC 是不是同一个思路？","expectedSources":["Lecture6-并发程序设计","MySQL核心问题"],"expectedContent":["fork","MVCC"],"keyPoints":["复制"],"shouldRefuse":false}
+{"id":"real-d4","question":"数据结构课上的 B+ 树和数据库索引的 B+ 树是同一个东西吗，数据库做了哪些改造？","expectedSources":["Data-Structure","Database-Development"],"expectedContent":["B树","B+树"],"keyPoints":["索引"],"shouldRefuse":false}
+{"id":"real-d5","question":"Java 的 HashMap 为什么线程不安全，并发场景该用什么替代？","expectedSources":["Java并发核心问题"],"expectedContent":["HashMap","ConcurrentHashMap"],"keyPoints":["线程安全"],"shouldRefuse":false}
+{"id":"real-d6","question":"DDIA 里讲的 LSM-Tree 和 B+ 树存储引擎，分别适合什么样的读写场景？","expectedSources":["Designing-Data-Intensive","Fundamentals-of-Data-Management"],"expectedContent":["LSM","聚集索引"],"keyPoints":["存储引擎"],"shouldRefuse":false}
+{"id":"real-d7","question":"网络层的路由机制，和软件系统设计里说的服务发现是不是一回事？","expectedSources":["Internet-computing","Software-System-Design"],"expectedContent":["路由协议","服务发现"],"keyPoints":["服务发现"],"shouldRefuse":false}
+{"id":"real-e1","question":"程序跑着跑着内存不够了，系统会怎么处理？","expectedSources":["Lecture3-存储管理"],"expectedContent":["页面淘汰"],"keyPoints":["虚拟"],"shouldRefuse":false}
+{"id":"real-e2","question":"电脑同时开太多东西就卡，这是什么原因造成的？","expectedSources":["Lecture3-存储管理"],"expectedContent":["工作集"],"keyPoints":["内存"],"shouldRefuse":false}
+{"id":"real-e3","question":"两个程序同时往同一个文件里写，会不会写乱？","expectedSources":["Linux-Programming","Lecture5-文件管理"],"expectedContent":["文件锁"],"keyPoints":["锁"],"shouldRefuse":false}
+{"id":"real-e4","question":"为什么拔 U 盘前要先安全弹出，直接拔会怎么样？","expectedSources":["Lecture4-设备管理","Lecture5-文件管理"],"expectedContent":["延迟写"],"keyPoints":["缓冲"],"shouldRefuse":false}
+{"id":"real-e5","question":"一个网站突然很多人访问就崩了，一般是从哪里开始崩的？","expectedSources":["Fundamentals-of-Data-Management","Database-Development"],"expectedContent":["可串行化"],"keyPoints":["并发"],"shouldRefuse":false}
+{"id":"real-e6","question":"为什么同一段代码跑两次，耗时能差很多？","expectedSources":["Lecture3-存储管理","2019-COA19"],"expectedContent":["局部性"],"keyPoints":["缓存"],"shouldRefuse":false}
+{"id":"real-e7","question":"下载大文件时网速忽快忽慢是什么原因？","expectedSources":["Internet-computing","计算机网络核心问题"],"expectedContent":["拥塞控制"],"keyPoints":["窗口"],"shouldRefuse":false}
+{"id":"real-f1","question":"这门课期末考试的具体题型和分值分布是什么？","expectedSources":[],"expectedContent":[],"keyPoints":[],"shouldRefuse":true}
+{"id":"real-f2","question":"能不能直接给我上一届的考试原题？","expectedSources":[],"expectedContent":[],"keyPoints":[],"shouldRefuse":true}
+{"id":"real-f3","question":"这门课今年的绩点分布和优秀率是多少？","expectedSources":[],"expectedContent":[],"keyPoints":[],"shouldRefuse":true}
+{"id":"real-f4","question":"帮我写一下这周的实验报告。","expectedSources":[],"expectedContent":[],"keyPoints":[],"shouldRefuse":true}
+{"id":"real-f5","question":"推荐几本操作系统考研的参考书。","expectedSources":[],"expectedContent":[],"keyPoints":[],"shouldRefuse":true}
+{"id":"real-f6","question":"机器学习里梯度下降的学习率应该怎么选？","expectedSources":[],"expectedContent":[],"keyPoints":[],"shouldRefuse":true}

@@ -86,6 +86,35 @@ services:
     ports:
       - "9200:9200"
 
+  # Observability stack. Enable with:
+  #   docker compose --profile obs up -d
+  # Prometheus scrapes the app on the host; Grafana (docrag/docrag, :3000) ships a
+  # provisioned dashboard: answer rate/latency, stage timings, TTFT, token rate,
+  # context chars (the compression gauge) and 5xx rate.
+  prometheus:
+    profiles: ["obs"]
+    image: prom/prometheus:v2.54.1
+    container_name: docrag-prometheus
+    volumes:
+      - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    profiles: ["obs"]
+    image: grafana/grafana:11.2.0
+    container_name: docrag-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: docrag
+      GF_SECURITY_ADMIN_PASSWORD: docrag
+    volumes:
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+
 volumes:
   pgdata:
   redisdata:

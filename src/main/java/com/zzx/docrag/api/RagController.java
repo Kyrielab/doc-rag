@@ -2,6 +2,7 @@ package com.zzx.docrag.api;
 
 import com.zzx.docrag.rag.QaAnswer;
 import com.zzx.docrag.rag.RagService;
+import com.zzx.docrag.retrieve.RetrievalResult;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -40,6 +41,17 @@ public class RagController {
     public QaAnswer quick(@RequestParam("q") String question,
                           @RequestParam(value = "topK", required = false) Integer topK) {
         return ragService.answer(question, topK);
+    }
+
+    /**
+     * Retrieval-only search: no generation, no cache, zero LLM cost. This is the QPS
+     * benchmark target (it isolates the retrieval pipeline from provider latency) and a
+     * debugging window into exactly what the retriever sees before the LLM does.
+     */
+    @GetMapping("/search")
+    public RetrievalResult search(@RequestParam("q") String question,
+                                  @RequestParam(value = "topK", required = false) Integer topK) {
+        return ragService.retrieveOnly(question, topK);
     }
 
     /**

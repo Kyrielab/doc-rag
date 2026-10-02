@@ -1,0 +1,70 @@
+{
+  "title": "doc-rag overview",
+  "uid": "docrag-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "Answer rate (req/s) by cache/refused",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum by (cache, refused) (rate(rag_answer_seconds_count[2m]))", "legendFormat": "cache={{cache}} refused={{refused}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "Answer latency avg / max (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(rag_answer_seconds_sum[2m])) / sum(rate(rag_answer_seconds_count[2m]))", "legendFormat": "avg" },
+        { "expr": "max(rag_answer_seconds_max)", "legendFormat": "max" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "Pipeline stage latency avg (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "sum by (stage) (rate(rag_stage_seconds_sum[2m])) / sum by (stage) (rate(rag_stage_seconds_count[2m]))", "legendFormat": "{{stage}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "SSE time-to-first-token avg (ms)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "sum(rate(rag_ttft_millis_sum[5m])) / sum(rate(rag_ttft_millis_count[5m]))", "legendFormat": "ttft avg" },
+        { "expr": "max(rag_ttft_millis_max)", "legendFormat": "ttft max" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] }
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "LLM token rate (tokens/s) by model/kind",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        { "expr": "sum by (model, kind) (rate(llm_tokens_total[5m]))", "legendFormat": "{{model}} {{kind}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "cps" }, "overrides": [] }
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Prompt context chars avg (compression gauge)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        { "expr": "sum(rate(rag_context_chars_sum[5m])) / sum(rate(rag_context_chars_count[5m]))", "legendFormat": "avg chars" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "HTTP 5xx rate by uri",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "targets": [
+        { "expr": "sum by (uri) (rate(http_server_requests_seconds_count{outcome=\"SERVER_ERROR\"}[2m]))", "legendFormat": "{{uri}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    }
+  ]
+}

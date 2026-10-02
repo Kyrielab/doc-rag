@@ -19,7 +19,7 @@ class PromptBuilderTest {
 
     /** Compression disabled here: these tests pin prompt SHAPE, compression has its own tests. */
     private static final RagProperties RAG = new RagProperties(
-            500, 80, 8, 30, 0.35, 60, true, true, false, 600, 1.0, 1.0, 0, false, false, 250);
+            500, 80, 8, 30, 0.35, 60, true, true, false, 600, 1.0, 1.0, 0, false, false, 250, 0);
 
     private static PromptBuilder newBuilder(int maxContextChars) {
         return new PromptBuilder(

@@ -26,11 +26,22 @@ spring:
     port: 5672
     username: docrag
     password: docrag
+    # Producer confirms (roadmap P1-3 hardening): the broker acks persistence of every
+    # published job; a nack/return marks the record FAILED instead of silently losing it.
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
     listener:
       simple:
         # Consumer-side retry with backoff; after max-attempts the message is rejected.
         # default-requeue-rejected=false sends the reject to the DLQ (see RabbitConfig)
         # instead of hot-looping a poison message forever.
+        # NOTE on ack mode: we deliberately keep AUTO ack + stateless retry instead of MANUAL.
+        # Equivalence argument: a crash mid-processing leaves the message unacked, so the
+        # broker redelivers it (at-least-once holds); exhausted retries reject to the DLQ;
+        # redeliveries hit the DONE-skip in DocumentService.processJob (idempotent). Manual
+        # ack would re-implement exactly this by hand, with more ways to forget an ack.
         retry:
           enabled: true
           max-attempts: 3
@@ -88,6 +99,7 @@ rag:
   enable-rewrite: false      # LLM query rewriting before retrieval (A/B dimension)
   enable-compression: false  # sentence-level context compression (A/B dimension)
   compression-chunk-chars: 250
+  fusion-protect-top-n: 0    # single-path top-N protection vs RRF consensus bias (A/B dimension; 0 = off)
 
 # Rerank provider: "jina" (TEI/Jina-compatible /rerank endpoint) or "dashscope"
 # (Aliyun Bailian native text-rerank API, reuses llm.api-key).

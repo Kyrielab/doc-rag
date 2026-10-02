@@ -5,8 +5,8 @@ target/
 .env
 application-local.yml
 
-# Third-party corpus (JavaGuide) - local study use only, do not redistribute
-corpus/*.md
+# Third-party corpus (JavaGuide + course notes) - local study use only, do not redistribute
+corpus/**/*.md
 !corpus/README.md
 
 # Logs

@@ -30,6 +30,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param enableCompression sentence-level context compression before prompt building
  *                         (A/B dimension; trades prompt cost against answer completeness)
  * @param compressionChunkChars per-chunk character budget when compression is on
+ * @param fusionProtectTopN single-path protection: guarantee each retriever's top-N hits
+ *                         survive the final top-K cut (A/B dimension; 0 = off). Targets the
+ *                         RRF consensus bias documented in experiment 4 (network-01): a chunk
+ *                         ranked #1 by one path but missed by the other can fall below chunks
+ *                         with mediocre agreement in both.
  */
 @ConfigurationProperties(prefix = "rag")
 public record RagProperties(
@@ -48,7 +53,8 @@ public record RagProperties(
         int rerankMinCandidates,
         boolean enableRewrite,
         boolean enableCompression,
-        int compressionChunkChars
+        int compressionChunkChars,
+        int fusionProtectTopN
 ) {
     public RagProperties {
         if (chunkSize <= 0) {
@@ -77,6 +83,9 @@ public record RagProperties(
         }
         if (compressionChunkChars <= 0) {
             compressionChunkChars = 250;
+        }
+        if (fusionProtectTopN < 0) {
+            fusionProtectTopN = 0;
         }
     }
 }

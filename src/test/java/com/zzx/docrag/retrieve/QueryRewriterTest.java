@@ -22,7 +22,7 @@ class QueryRewriterTest {
 
     private static RagProperties props(boolean enableRewrite) {
         return new RagProperties(500, 80, 8, 30, 0.35, 60, true, true, false, 600,
-                1.0, 1.0, 0, enableRewrite, false, 250);
+                1.0, 1.0, 0, enableRewrite, false, 250, 0);
     }
 
     private static LlmProperties llm(String rewriteModel) {

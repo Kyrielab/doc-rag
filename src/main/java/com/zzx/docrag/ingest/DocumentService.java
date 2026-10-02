@@ -3,6 +3,7 @@ package com.zzx.docrag.ingest;
 import com.zzx.docrag.es.ChunkGateway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 
@@ -142,8 +143,10 @@ public class DocumentService {
     }
 
     private void publish(String docId) {
+        // CorrelationData carries the docId so the async broker-confirm callback
+        // (RabbitConfig#ingestConfirmCustomizer) can attribute a nack to this record.
         rabbitTemplate.convertAndSend(RabbitConfig.INGEST_EXCHANGE, RabbitConfig.INGEST_ROUTING_KEY,
-                new IngestJob(docId));
+                new IngestJob(docId), new CorrelationData(docId));
     }
 
     private void markDone(DocumentRecord record, int chunkCount) {

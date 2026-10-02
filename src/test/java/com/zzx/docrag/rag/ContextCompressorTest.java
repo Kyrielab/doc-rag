@@ -16,7 +16,7 @@ class ContextCompressorTest {
 
     private static ContextCompressor compressor(boolean enabled, int budget) {
         RagProperties props = new RagProperties(500, 80, 8, 30, 0.35, 60, true, true, false, 600,
-                1.0, 1.0, 0, false, enabled, budget);
+                1.0, 1.0, 0, false, enabled, budget, 0);
         return new ContextCompressor(props);
     }
 

@@ -71,6 +71,8 @@
 | frontmatter 剥离 | 解析后、切分前去掉 YAML 元数据块 | 关键词堆叠的元数据被当正文索引会成为匹配一切的"万能磁铁"chunk（实验 9 在 top-3 里直接抓到） |
 | 上下文压缩 | 句级筛选：CJK 二元组+拉丁词与问题的重合度打分，按分取句、按原文顺序拼接，预算 250 字符/chunk | 压缩器本身必须几乎免费（无模型调用），否则省的 token 不够它自己的成本；A/B 数据见 experiments.md 实验 11 |
 | 关系库 | PostgreSQL 只存入库状态机（documents 表），chunk 正文仍在 ES | 各存储只做自己擅长的事；状态机需要事务和查询，全文/向量检索需要 ES |
+| 评测集与语料隔离 | 考试题/试卷**不进语料**，只作出题素材 | 否则评测变背题；实测抓到一篇漏网（00-题目帖混进讲义）导致拒答用例失效——隔离要按内容执行，不能按文件名猜（实验 17） |
+| 消费端 ack 模式 | AUTO ack + 重试模板 + DLQ + DONE-skip，不用手动 ack | 组合已满足 at-least-once + 有界重试 + 幂等；手动 ack 只是把同样的事手写一遍，还多一堆忘 ack 的方式（论证在 application.yml 注释） |
 
 **真实踩坑记录（全部由端到端实跑暴露，每个都已修复并有回归测试/日志证据）**
 
@@ -286,6 +288,17 @@ curl -X POST "http://localhost:8080/api/eval/run?label=full&topK=8&skipGeneratio
 
 **当前基线（评测集 v1.4 + corpus-v2，实验 15）**：ContentRecall@8 = **0.977**（42/43，唯一漏检为已归因的 RRF 共识偏差用例 network-01，保留作融合策略改进的靶子）、SrcRecall@8 = **1.000**、引用准确率 0.998、关键点覆盖率 **0.906**、拒答准确率 **1.000**。第 7 周补充：SSE 流式端点 TTFT **1577ms**（非流式等全量 12.3s，感知延迟 -87%）；4 并发压测 48/48 零错误（吞吐 0.67 req/s，受生成端 LLM 延迟限制）；异步入库受理 mean 38ms；死信链路演练通过（毒消息 → 重试 3 次 → FAILED → DLQ messages=1）；Prometheus 指标全量在采（含 llm.tokens 成本账本）。
 
+**corpus-v3 大语料基线（190 篇课程笔记 + JavaGuide = 4293 chunks；评测集 v1.5 = 46 条同学真实提问语气用例，实验 17-19）**：
+
+| 配置 | ContentRecall@8 | SrcRecall@8 | 延迟 |
+|---|---|---|---|
+| lexical-only | 0.488 | 0.663 | mean 25ms |
+| vector-only | **0.625** | 0.859 | mean 236ms |
+| hybrid | 0.612 | 0.837 | mean 264ms |
+| hybrid + 重排 / + 改写 / + 单路保护 | 0.612 / **0.588（负收益）** / 0.612 | 0.837 | 改写 +400ms |
+
+生成层：引用准确率 **1.000**、覆盖率 0.891、拒答 0.935（3 错均已归因：1 语料污染已修复 + 2 检索失败触发的诚实拒答）。检索层 QPS：**并发 1/4/8 → 4.5/15.7/24.1 req/s 近线性扩展**，p50 恒 ~190ms，瓶颈=embedding 供应商调用（占单请求 90%），应用侧远未饱和。削峰演练：20 篇突发受理 1.22s 全 202（P99≈142ms），积压曲线 0→17→49s 排空。**关键发现**：小语料的饱和指标（0.95+）被大语料打回原形——口语化题（7 漏 6）与跨课多跳题（0.5 分形态：找到一篇找不到另一篇）是当前真实短板，已入队专项实验；查询改写在大语料上二次证伪。详见 experiments.md 实验 17-19。
+
 四个最有含金量的结论：
 1. **混合比纯关键词 ContentRecall@8 高 6.9pp**，救回的全是口语化改写题（BM25 词面失配场景）
 2. **混合与纯向量打平但失败集不同**：混合救回向量漏的精确术语题（para-01），却因 RRF 共识偏差丢了向量能命中的 network-01（正确 chunk 只在单路排名靠前，被"两路都中游"的平庸 chunk 挤出 top-8）
@@ -307,6 +320,7 @@ curl -X POST "http://localhost:8080/api/eval/run?label=full&topK=8&skipGeneratio
 | POST | `/api/answer` | 问答（返回答案 + 引用 + trace） |
 | GET | `/api/answer/stream?q=` | **SSE 流式问答**（meta → token* → done 事件序列，trace 含 ttftMillis；演示界面用的就是它） |
 | POST | `/api/answer/quick?q=` | 便捷问答（浏览器/压测用） |
+| GET | `/api/search?q=` | **检索层直查**（retrieval-only：零 LLM 零缓存，QPS 压测目标 + 检索调试窗口） |
 | POST | `/api/eval/run` | 跑评测，返回聚合报告 |
 | POST | `/api/eval/markdown` | 评测结果渲染为 markdown 表格行 |
 | GET | `/api/admin/status` | 依赖连通性与生效配置 |
@@ -320,7 +334,7 @@ curl -X POST "http://localhost:8080/api/eval/run?label=full&topK=8&skipGeneratio
 mvn test
 ```
 
-**当前状态：50 个测试全部通过**（JDK 21.0.12 / Maven 3.9.16 / Spring Boot 3.5.6 实测）。
+**当前状态：55 个测试全部通过**（JDK 21.0.12 / Maven 3.9.16 / Spring Boot 3.5.6 实测）。
 
 | 测试类 | 覆盖内容 |
 |---|---|
@@ -332,27 +346,29 @@ mvn test
 | `ContextCompressorTest` | 禁用/短文直通、保留相关句丢弃填充句、CJK 二元组打分、保持原文顺序、无相关句退化为前缀截断 |
 | `IngestionFrontmatterTest` | YAML 块剥离、无围栏不动、围栏不闭合不吞正文、CRLF 兼容 |
 | `WebLayerSerializationTest` | **Web 层契约（MockMvc 走真实 MVC+Jackson 栈）**：Instant 序列化为 ISO-8601（钉死 bug #10）、inlineContent 不泄漏、空白请求 400 |
+| `FusionProtectionTest` | 单路 top-N 保护：禁用即恒等、已在窗口不动作、缺失换尾、双路保护顺序、尺寸守恒 |
 
 ---
 
 ## 7. 已知限制与下一步
 
 **当前限制**
-1. PDF 解析依赖文本层，扫描件需要先 OCR；表格和标题层级会丢失
-2. 查询改写与上下文压缩均已实现并 A/B 实测，**默认关闭**（当前评测集上改写零收益 +402ms；压缩省 75% 上下文但覆盖率 -4.1pp）——开关在配置里，数据见实验 9/11
-3. 多轮对话的指代消解未实现（查询改写机制已在，缺会话上下文管理）
-4. 关键点覆盖率是弱正确性指标；生产级需 LLM 裁判 + 人工抽检
-5. 无鉴权与多租户隔离
-6. network-01（RRF 共识偏差）是唯一遗留的已知系统缺陷——保留在评测集里作为融合策略改进的靶子
+1. **口语化查询是大语料上的第一短板**（v1.5 E 组 7 漏 6）：向量路也没救回；归因候选（candidateK=30 偏小 / minVectorScore 0.35 截断 / 讲义 chunk 尺寸）已入队专项实验
+2. **跨文档多跳题只能找到一半**（D 组 0.5 分形态）：两篇同时进 top-8 需要文档级两阶段检索或每文档限额
+3. hybrid 在 v1.5 上略输 vector-only（0.612 vs 0.625）：RRF 共识偏差系统性显形（network-01 孤例放大成模式），融合策略 v2 是高优先队列项
+4. PDF 解析依赖文本层；课程笔记语料的课件截图信息在 HTML 提取时丢失（已知语料质量限制）
+5. 查询改写两次证伪（小语料零收益、大语料负收益）、上下文压缩默认关闭（-4.1pp 覆盖率）、多轮对话未实现
+6. 无鉴权与多租户隔离；关键点覆盖率是弱正确性指标
 
 **下一步优先级**
-- [ ] **network-01 融合策略改进**：单路高分保护或融合前轻量重排（唯一遗留系统缺陷，靶子明确）
-- [ ] **IK 中文分词器**：词级分词替换单字切分（compose profile 已备好；v2 语料下词法已 0.953，预期收益收窄）
-- [ ] **Grafana 看板**：Prometheus 端点已就绪，差可视化
-- [ ] **多轮对话**：会话管理 + 指代消解（复用查询改写机制）
-- [ ] **语义缓存 / 限流配额**：向量近邻缓存提高命中率；按调用方做 token 配额
+- [ ] **E 组口语化召回归因实验**：candidateK 30→60 / minVectorScore 0.35→0.2 / 讲义 chunk 尺寸重调，三变量逐个试
+- [ ] **融合策略 v2**：按路交替取 top-K（interleaving）或向量路加权，吃掉 hybrid 与 vector 的 1.3pp 差距
+- [ ] **IK 中文分词器**：lexical 0.488 有大提升空间，es-zh 镜像已构建成功（profile 就绪）
+- [ ] **多跳召回**：文档级两阶段检索 / 每文档去重限额
+- [ ] MockMvc 补 `/api/search` 端点存在性用例（实验 19 的 404 教训）
+- [ ] 多轮对话、语义缓存、限流配额
 
-**已完成**（数据见 experiments.md 实验 12-16）：入库异步化 + 死信演练、SSE 流式端点（TTFT 1577ms）、Micrometer/Prometheus 指标与 token 成本账本、评测集 v1.4 治理（新基线 0.977）、Web 层 MockMvc 测试、演示 UI。
+**已完成**（数据见 experiments.md 实验 12-19）：入库异步化 + 死信演练 + producer confirm、削峰积压曲线（峰值 17 / 49s 排空 / 受理 P99 142ms）、SSE 流式（TTFT 1577ms）、Micrometer/Prometheus/**Grafana 看板**（obs profile，镜像走 daocloud 源）、检索层 QPS 压测（c=8 → 24 req/s 近线性，瓶颈=embedding 供应商）、**语料换代 corpus-v3（4293 chunks）+ 评测集 v1.5（46 条真实提问）**、评测集 v1.4 治理、Web 层 MockMvc 测试、演示 UI。
 
 ---
 
@@ -363,14 +379,16 @@ doc-rag/
 ├── pom.xml
 ├── docker-compose.yml
 ├── Dockerfile.es-zh              # 带 IK 分词器的 ES 镜像
-├── experiments.md                # 完整实验记录（16 组实验 + 失败归因 + 队列）
+├── experiments.md                # 完整实验记录（19 组实验 + 失败归因 + 队列）
 ├── blog/                         # 技术博客（数据复盘长文）
+├── ops/                          # Prometheus 抓取配置 + Grafana 看板供给（obs profile）
 ├── eval/
 │   ├── sample-eval.jsonl         # 用例格式示例
-│   ├── my-eval.jsonl             # 正式评测集 v1.4（48 条，chunk 级金标）
+│   ├── my-eval.jsonl             # 评测集 v1.4（48 条，JavaGuide 语料时代）
+│   ├── course-eval.jsonl         # 评测集 v1.5（46 条真实提问，课程语料时代）
 │   └── result-*.json             # 各配置原始评测报告（数字出处）
 ├── scripts/                      # start-dev / smoke-test / run-ab / run-week4 / run-week7 /
-│                                 # run-week56 / run-rerank / run-rewrite / verify-terms
+│                                 # run-week56 / run-course-ingest / run-v15-evals / run-qps-load / …
 └── src/
     ├── main/
     │   ├── java/com/zzx/docrag/
