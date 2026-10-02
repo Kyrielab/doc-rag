@@ -1,6 +1,13 @@
 # doc-rag — 技术文档混合检索问答服务
 
-面向技术手册 / 维修文档的 RAG（检索增强生成）问答后端。核心不是"能问答"，而是**每条质量结论都有可复现的数据支撑**：混合检索、RRF 融合、重排、评测框架全链路打通，每次改动都能用同一套用例量化出 delta。
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+![Java](https://img.shields.io/badge/Java-21-orange.svg)
+![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.5.6-brightgreen.svg)
+![Elasticsearch](https://img.shields.io/badge/Elasticsearch-8.15.3-00bfb3.svg)
+![Tests](https://img.shields.io/badge/tests-56_passing-success.svg)
+![Experiments](https://img.shields.io/badge/experiments-19_documented-blue.svg)
+
+面向技术文档 / 课程讲义 / 维修手册的 RAG（检索增强生成）问答后端。核心不是"能问答"，而是**每条质量结论都有可复现的数据支撑**：混合检索、RRF 融合、重排、评测框架全链路打通，每次改动都能用同一套用例量化出 delta。
 
 ---
 
